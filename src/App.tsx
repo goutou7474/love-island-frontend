@@ -36,6 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
+import { backendApi } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -86,6 +87,7 @@ const wishCategoryLabels: Record<WishCategory, string> = {
 
 const today = '2026-05-22'
 const mobileModalWidth = 'min(360px, calc(100vw - 32px))'
+const authTokenKey = 'love-island-auth-token'
 
 const dayDiff = (from: string, to = today) => {
   const start = new Date(from).getTime()
@@ -108,6 +110,8 @@ function makeId(prefix: string) {
 export default function App() {
   const [snapshot, setSnapshot] = useState<LoveAppSnapshot | null>(null)
   const [view, setView] = useState<AppView>('login')
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authSubmitting, setAuthSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState<MainTab>('home')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -145,6 +149,28 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const token = window.localStorage.getItem(authTokenKey)
+
+    if (!token) {
+      setAuthChecking(false)
+      return
+    }
+
+    backendApi.me(token)
+      .then((session) => {
+        setView('home')
+        setActiveTab('home')
+        showToast('success', `欢迎回来，${session.user.displayName}`)
+      })
+      .catch(() => {
+        window.localStorage.removeItem(authTokenKey)
+      })
+      .finally(() => {
+        setAuthChecking(false)
+      })
+  }, [])
+
+  useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => setToast(null), 2600)
     return () => window.clearTimeout(timer)
@@ -165,7 +191,7 @@ export default function App() {
     [anniversaries],
   )
 
-  if (!snapshot || !settings || !couple || !stats) {
+  if (!snapshot || !settings || !couple || !stats || authChecking) {
     return (
       <div className="island-stage">
         <div className="phone-frame">
@@ -197,10 +223,28 @@ export default function App() {
     }
   }
 
-  const handleLogin = () => {
-    setView('home')
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setAuthSubmitting(true)
+      const login = await backendApi.login(email, password)
+      window.localStorage.setItem(authTokenKey, login.token)
+      const session = await backendApi.me(login.token)
+      setView('home')
+      setActiveTab('home')
+      showToast('success', `欢迎回来，${session.user.displayName}`)
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '登录失败，请检查账号密码')
+      throw error
+    } finally {
+      setAuthSubmitting(false)
+    }
+  }
+
+  const handleLogout = () => {
+    window.localStorage.removeItem(authTokenKey)
+    setView('login')
     setActiveTab('home')
-    showToast('success', '欢迎回到你们的小岛')
+    showToast('info', '已经退出小岛')
   }
 
   const submitJoin = (event: FormEvent) => {
@@ -331,7 +375,7 @@ export default function App() {
 
   const renderMainView = () => {
     if (view === 'login') {
-      return <LoginPage onLogin={handleLogin} onCreate={() => setDialog('createSpace')} onJoin={() => setDialog('joinSpace')} />
+      return <LoginPage loading={authSubmitting} onLogin={handleLogin} />
     }
     if (view === 'invite') return <InvitePage inviteCode={couple.inviteCode} onBack={() => setView('settings')} />
     if (view === 'secrets') return <SecretsPage secrets={secrets} onBack={() => setView('home')} onWrite={() => setDialog('writeSecret')} />
@@ -347,7 +391,7 @@ export default function App() {
           onEditProfile={() => setDialog('editProfile')}
           onAvatar={() => setDialog('avatar')}
           onShowState={setView}
-          onLogout={() => setView('login')}
+          onLogout={handleLogout}
         />
       )
     }
@@ -644,27 +688,101 @@ export default function App() {
   )
 }
 
-function LoginPage({ onLogin, onCreate, onJoin }: { onLogin: () => void; onCreate: () => void; onJoin: () => void }) {
+function LoginPage({
+  loading,
+  onLogin,
+}: {
+  loading: boolean
+  onLogin: (email: string, password: string) => Promise<void>
+}) {
+  const [email, setEmail] = useState('owner@example.com')
+  const [password, setPassword] = useState('owner-password-123')
+  const [error, setError] = useState('')
+
+  const submitLogin = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+
+    try {
+      await onLogin(email, password)
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : '登录失败，请检查账号密码')
+    }
+  }
+
+  const fillAccount = (nextEmail: string, nextPassword: string) => {
+    setEmail(nextEmail)
+    setPassword(nextPassword)
+    setError('')
+  }
+
   return (
     <div className="screen-scroll">
       <StatusBar />
-      <div className="px-6 pt-12 text-center">
-        <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-[36px] bg-[#e6f9f6] text-[#0f8178] shadow-lg">
-          <Heart size={44} fill="currentColor" />
+      <div className="px-6 pt-8 text-center">
+        <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-[34px] border border-[#d7ece7] bg-[#eaf9f5] text-[#0f8178] shadow-[0_16px_35px_rgba(101,85,61,0.14)]">
+          <div className="relative">
+            <Heart size={42} fill="currentColor" />
+            <span className="absolute -right-3 -top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#fff8df] text-[13px] shadow-sm">钥</span>
+          </div>
         </div>
-        <h1 className="mt-6 text-[34px] font-black leading-tight text-[#725d42]">言言羊羊的小岛</h1>
-        <p className="mx-auto mt-3 max-w-[290px] text-[14px] leading-7 text-[#9f927d]">把异地的天气、想念、纪念日和小愿望，都放进一个软乎乎的岛屿小屋。</p>
+        <p className="mt-5 text-[12px] font-black uppercase tracking-[0.16em] text-[#9f927d]">Private Island</p>
+        <h1 className="mt-2 text-[31px] font-black leading-tight text-[#725d42]">回到你们的小岛</h1>
+        <p className="mx-auto mt-3 max-w-[286px] text-[14px] leading-7 text-[#9f927d]">这里只给两个人用。输入预置账号后，天气、纪念日和小愿望才会亮起来。</p>
       </div>
-      <div className="section mt-8 grid gap-3">
-        <Button type="primary" size="large" block onClick={onLogin}>直接进入原型</Button>
-        <Button size="large" block onClick={onCreate}>创建情侣空间</Button>
-        <Button type="dashed" size="large" block onClick={onJoin}>输入邀请码加入</Button>
+
+      <form className="section mt-5 grid gap-3" onSubmit={submitLogin}>
+        <div className="login-panel">
+          <Field label="邮箱">
+            <div className="login-input-row">
+              <Mail size={17} />
+              <input
+                className="login-input"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="owner@example.com"
+              />
+            </div>
+          </Field>
+          <Field label="密码">
+            <div className="login-input-row">
+              <Lock size={17} />
+              <input
+                className="login-input"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="输入预置密码"
+              />
+            </div>
+          </Field>
+          {error ? <p className="login-error" role="alert">{error}</p> : null}
+        </div>
+
+        <Button type="primary" size="large" block htmlType="submit" loading={loading}>登录小岛</Button>
+      </form>
+
+      <div className="section mt-3">
+        <div className="login-account-switch">
+          <button type="button" onClick={() => fillAccount('owner@example.com', 'owner-password-123')}>
+            <span>言言账号</span>
+            <small>owner@example.com</small>
+          </button>
+          <button type="button" onClick={() => fillAccount('partner@example.com', 'partner-password-123')}>
+            <span>羊羊账号</span>
+            <small>partner@example.com</small>
+          </button>
+        </div>
       </div>
+
       <div className="section">
         <Card type="dashed">
           <div className="flex items-center gap-3">
-            <ShieldAlert className="text-[#19c8b9]" size={22} />
-            <p className="m-0 text-[12px] leading-5 text-[#725d42]">正式版会接 Firebase Auth；现在所有按钮走本地 mock。</p>
+            <ShieldAlert className="shrink-0 text-[#19c8b9]" size={22} />
+            <p className="m-0 text-[12px] leading-5 text-[#725d42]">公开注册已经关闭。正式部署时账号会由服务器初始化脚本创建。</p>
           </div>
         </Card>
       </div>
