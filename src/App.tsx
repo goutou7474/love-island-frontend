@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -88,6 +88,12 @@ const wishCategoryLabels: Record<WishCategory, string> = {
 const today = '2026-05-22'
 const mobileModalWidth = 'min(360px, calc(100vw - 32px))'
 const authTokenKey = 'love-island-auth-token'
+const backendColorMap: Record<string, string> = {
+  rose: '#ee8c7c',
+  pink: '#f49aaa',
+  blue: '#8297f4',
+  mint: '#82d5bb',
+}
 
 const dayDiff = (from: string, to = today) => {
   const start = new Date(from).getTime()
@@ -105,6 +111,21 @@ function nextAnnualDays(date: string) {
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}`
+}
+
+function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
+  return {
+    id: item.id,
+    name: item.name,
+    date: item.date,
+    repeat: item.repeat,
+    icon: item.icon,
+    color: backendColorMap[item.color] ?? item.color,
+    isMain: item.isMain,
+    kind: item.kind === 'proposal' || item.kind === 'engagement' ? 'custom' : item.kind,
+    lunarDate: item.lunarDate ?? undefined,
+    owner: item.owner === 'partner' ? 'yangyang' : item.owner === 'owner' ? 'yanyan' : 'both',
+  }
 }
 
 export default function App() {
@@ -161,6 +182,7 @@ export default function App() {
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
+        return loadBackendAnniversaries(token)
       })
       .catch(() => {
         window.localStorage.removeItem(authTokenKey)
@@ -205,6 +227,11 @@ export default function App() {
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
 
+  const loadBackendAnniversaries = async (token: string) => {
+    const result = await backendApi.listAnniversaries(token)
+    setAnniversaries(result.anniversaries.map(mapBackendAnniversary))
+  }
+
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -229,6 +256,7 @@ export default function App() {
       const login = await backendApi.login(email, password)
       window.localStorage.setItem(authTokenKey, login.token)
       const session = await backendApi.me(login.token)
+      await loadBackendAnniversaries(login.token)
       setView('home')
       setActiveTab('home')
       showToast('success', `欢迎回来，${session.user.displayName}`)
@@ -313,8 +341,21 @@ export default function App() {
       return
     }
     runSaving(async () => {
-      await mockLoveAppApi.saveAnniversary(anniversaryForm)
-      setAnniversaries((current) => [{ id: makeId('a'), color: '#82d5bb', ...anniversaryForm }, ...current])
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再记录纪念日')
+      }
+
+      const result = await backendApi.createAnniversary(token, {
+        ...anniversaryForm,
+        calendar: 'solar',
+        kind: 'custom',
+        owner: 'both',
+        color: 'mint',
+        isMain: false,
+        note: null,
+      })
+      setAnniversaries((current) => [mapBackendAnniversary(result.anniversary), ...current])
       setAnniversaryForm({ name: '', date: today, repeat: 'yearly', icon: '♡' })
     }, '纪念日已经记好')
   }
