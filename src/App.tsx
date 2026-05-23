@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -142,6 +142,18 @@ function mapBackendMemory(item: BackendMemory): Memory {
     mood: item.mood,
     note: item.note,
     photos: item.photos,
+  }
+}
+
+function mapBackendWish(item: BackendWish): Wish {
+  return {
+    id: item.id,
+    title: item.title,
+    category: item.category,
+    priority: item.priority,
+    note: item.note,
+    addedBy: item.addedByUserId,
+    completedAt: item.completedAt ?? undefined,
   }
 }
 
@@ -298,10 +310,11 @@ export default function App() {
 
       try {
         const session = await backendApi.me(token)
-        const [anniversaryResult, checkinResult, memoryResult] = await Promise.all([
+        const [anniversaryResult, checkinResult, memoryResult, wishResult] = await Promise.all([
           backendApi.listAnniversaries(token),
           backendApi.listCheckinCompletions(token),
           backendApi.listMemories(token),
+          backendApi.listWishes(token),
         ])
 
         if (cancelled) return
@@ -310,6 +323,9 @@ export default function App() {
         setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, checkinResult.completions))
         if (memoryResult.memories.length > 0) {
           setMemories(memoryResult.memories.map(mapBackendMemory))
+        }
+        if (wishResult.wishes.length > 0) {
+          setWishes(wishResult.wishes.map(mapBackendWish))
         }
         setView('home')
         setActiveTab('home')
@@ -380,6 +396,13 @@ export default function App() {
     }
   }
 
+  const loadBackendWishes = async (token: string) => {
+    const result = await backendApi.listWishes(token)
+    if (result.wishes.length > 0) {
+      setWishes(result.wishes.map(mapBackendWish))
+    }
+  }
+
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -408,6 +431,7 @@ export default function App() {
         loadBackendAnniversaries(login.token),
         loadBackendCheckins(login.token),
         loadBackendMemories(login.token),
+        loadBackendWishes(login.token),
       ])
       setView('home')
       setActiveTab('home')
@@ -568,8 +592,13 @@ export default function App() {
       return
     }
     runSaving(async () => {
-      await mockLoveAppApi.saveWish(wishForm)
-      setWishes((current) => [{ id: makeId('w'), addedBy: couple.users[0].id, ...wishForm }, ...current])
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再保存心愿')
+      }
+
+      const result = await backendApi.createWish(token, wishForm)
+      setWishes((current) => [mapBackendWish(result.wish), ...current])
       setWishForm({ title: '', category: 'place', priority: 2, note: '' })
     }, '心愿已经挂到小岛树上')
   }
@@ -597,7 +626,14 @@ export default function App() {
   const completeWish = () => {
     if (!selectedWish) return
     runSaving(async () => {
-      setWishes((current) => current.map((wish) => wish.id === selectedWish.id ? { ...wish, completedAt: today } : wish))
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再完成心愿')
+      }
+
+      const result = await backendApi.completeWish(token, selectedWish.id, { completedAt: today })
+      setWishes((current) => current.map((wish) => wish.id === selectedWish.id ? mapBackendWish(result.wish) : wish))
+      setSelectedWish(null)
     }, '这个心愿达成啦')
   }
 
@@ -636,7 +672,20 @@ export default function App() {
       }, '拾光已经删除')
       return
     }
-    if (confirmDelete.kind === 'wish') setWishes((current) => current.filter((item) => item.id !== confirmDelete.id))
+    if (confirmDelete.kind === 'wish') {
+      runSaving(async () => {
+        const token = window.localStorage.getItem(authTokenKey)
+        if (!token) {
+          throw new Error('请先登录后再删除心愿')
+        }
+
+        await backendApi.deleteWish(token, confirmDelete.id)
+        setWishes((current) => current.filter((item) => item.id !== confirmDelete.id))
+        setConfirmDelete(null)
+        setSelectedWish(null)
+      }, '心愿已经删除')
+      return
+    }
     if (confirmDelete.kind === 'anniversary') setAnniversaries((current) => current.filter((item) => item.id !== confirmDelete.id))
     setConfirmDelete(null)
     showToast('success', '已经删除')

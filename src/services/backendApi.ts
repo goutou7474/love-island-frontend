@@ -108,6 +108,29 @@ export type CreateMemoryPayload = Pick<
   'title' | 'date' | 'location' | 'mood' | 'note' | 'photos'
 >
 
+export type BackendWishCategory = 'place' | 'food' | 'activity' | 'gift' | 'learn'
+export type BackendWishPriority = 1 | 2 | 3
+
+export interface BackendWish {
+  id: string
+  coupleId: string
+  title: string
+  category: BackendWishCategory
+  priority: BackendWishPriority
+  note: string
+  addedByUserId: string
+  completedAt: string | null
+  completedByUserId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WishListResponse {
+  wishes: BackendWish[]
+}
+
+export type CreateWishPayload = Pick<BackendWish, 'title' | 'category' | 'priority' | 'note'>
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -208,6 +231,39 @@ export const backendApi = {
   },
   deleteMemory(token: string, memoryId: string) {
     return requestJson<null>(`/memories/${memoryId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  listWishes(token: string) {
+    return requestJson<WishListResponse>('/wishes', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  createWish(token: string, payload: CreateWishPayload) {
+    return requestJson<{ wish: BackendWish }>('/wishes', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  completeWish(token: string, wishId: string, payload: { completedAt: string }) {
+    return requestJson<{ wish: BackendWish }>(`/wishes/${wishId}/complete`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteWish(token: string, wishId: string) {
+    return requestJson<null>(`/wishes/${wishId}`, {
       method: 'DELETE',
       headers: {
         authorization: `Bearer ${token}`,
