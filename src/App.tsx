@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendCheckinCompletion } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -128,6 +128,42 @@ function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
   }
 }
 
+function mergeBackendCheckinCompletions(
+  categories: ChecklistCategory[],
+  completions: BackendCheckinCompletion[],
+): ChecklistCategory[] {
+  const completionByItemId = new Map(completions.map((completion) => [completion.itemId, completion]))
+
+  return categories.map((category) => ({
+    ...category,
+    items: category.items.map((item) => {
+      const completion = completionByItemId.get(item.id)
+      const baseItem = resetCheckinCompletion(item)
+
+      if (!completion) {
+        return baseItem
+      }
+
+      return {
+        ...baseItem,
+        completedAt: completion.completedAt,
+        completedBy: completion.completedByUserId,
+        location: completion.location ?? undefined,
+        note: completion.note ?? undefined,
+      }
+    }),
+  }))
+}
+
+function resetCheckinCompletion(item: ChecklistItem): ChecklistItem {
+  return {
+    id: item.id,
+    categoryId: item.categoryId,
+    title: item.title,
+    description: item.description,
+  }
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<LoveAppSnapshot | null>(null)
   const [view, setView] = useState<AppView>('login')
@@ -157,39 +193,59 @@ export default function App() {
   const [secretForm, setSecretForm] = useState({ title: '', content: '', openMode: 'now' as SecretMessage['openMode'], openAt: '' })
   const [joinCode, setJoinCode] = useState('YY-0521')
 
+  const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
+
   useEffect(() => {
-    mockLoveAppApi.getSnapshot().then((data) => {
+    let cancelled = false
+
+    async function bootstrapApp() {
+      const data = await mockLoveAppApi.getSnapshot()
+
+      if (cancelled) return
+
       setSnapshot(data)
-      setChecklistCategories(data.checklistCategories)
+      setChecklistCategories(mergeBackendCheckinCompletions(data.checklistCategories, []))
       setMemories(data.memories)
       setAnniversaries(data.anniversaries)
       setWishes(data.wishes)
       setSecrets(data.secrets)
       setSettings(data.settings)
-    })
-  }, [])
 
-  useEffect(() => {
-    const token = window.localStorage.getItem(authTokenKey)
+      const token = window.localStorage.getItem(authTokenKey)
 
-    if (!token) {
-      setAuthChecking(false)
-      return
-    }
+      if (!token) {
+        setAuthChecking(false)
+        return
+      }
 
-    backendApi.me(token)
-      .then((session) => {
+      try {
+        const session = await backendApi.me(token)
+        const [anniversaryResult, checkinResult] = await Promise.all([
+          backendApi.listAnniversaries(token),
+          backendApi.listCheckinCompletions(token),
+        ])
+
+        if (cancelled) return
+
+        setAnniversaries(anniversaryResult.anniversaries.map(mapBackendAnniversary))
+        setChecklistCategories(mergeBackendCheckinCompletions(data.checklistCategories, checkinResult.completions))
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
-        return loadBackendAnniversaries(token)
-      })
-      .catch(() => {
+      } catch {
         window.localStorage.removeItem(authTokenKey)
-      })
-      .finally(() => {
-        setAuthChecking(false)
-      })
+      } finally {
+        if (!cancelled) {
+          setAuthChecking(false)
+        }
+      }
+    }
+
+    void bootstrapApp()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -225,11 +281,14 @@ export default function App() {
     )
   }
 
-  const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
-
   const loadBackendAnniversaries = async (token: string) => {
     const result = await backendApi.listAnniversaries(token)
     setAnniversaries(result.anniversaries.map(mapBackendAnniversary))
+  }
+
+  const loadBackendCheckins = async (token: string) => {
+    const result = await backendApi.listCheckinCompletions(token)
+    setChecklistCategories((current) => mergeBackendCheckinCompletions(current, result.completions))
   }
 
   const openMainTab = (tab: MainTab) => {
@@ -256,7 +315,10 @@ export default function App() {
       const login = await backendApi.login(email, password)
       window.localStorage.setItem(authTokenKey, login.token)
       const session = await backendApi.me(login.token)
-      await loadBackendAnniversaries(login.token)
+      await Promise.all([
+        loadBackendAnniversaries(login.token),
+        loadBackendCheckins(login.token),
+      ])
       setView('home')
       setActiveTab('home')
       showToast('success', `欢迎回来，${session.user.displayName}`)
@@ -311,11 +373,28 @@ export default function App() {
     event.preventDefault()
     if (!selectedChecklistItem) return
     runSaving(async () => {
-      await mockLoveAppApi.completeChecklistItem(selectedChecklistItem.id, checkinForm)
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再完成打卡')
+      }
+
+      const result = await backendApi.upsertCheckinCompletion(token, selectedChecklistItem.id, {
+        categoryId: selectedChecklistItem.categoryId,
+        title: selectedChecklistItem.title,
+        completedAt: checkinForm.date,
+        location: checkinForm.location.trim() || null,
+        note: checkinForm.note.trim() || null,
+      })
       setChecklistCategories((current) => current.map((category) => ({
         ...category,
         items: category.items.map((item) => item.id === selectedChecklistItem.id
-          ? { ...item, completedAt: checkinForm.date, completedBy: couple.users[0].id, location: checkinForm.location, note: checkinForm.note }
+          ? {
+            ...item,
+            completedAt: result.completion.completedAt,
+            completedBy: result.completion.completedByUserId,
+            location: result.completion.location ?? undefined,
+            note: result.completion.note ?? undefined,
+          }
           : item),
       })))
     }, '打卡完成，今天又多了一点可爱')

@@ -57,6 +57,32 @@ export type CreateAnniversaryPayload = Pick<
   note?: string | null
 }
 
+export interface BackendCheckinCompletion {
+  id: string
+  coupleId: string
+  itemId: string
+  categoryId: string
+  title: string
+  completedAt: string
+  completedByUserId: string
+  location: string | null
+  note: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CheckinCompletionListResponse {
+  completions: BackendCheckinCompletion[]
+}
+
+export type UpsertCheckinCompletionPayload = Pick<
+  BackendCheckinCompletion,
+  'categoryId' | 'title' | 'completedAt'
+> & {
+  location?: string | null
+  note?: string | null
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -102,6 +128,22 @@ export const backendApi = {
   createAnniversary(token: string, payload: CreateAnniversaryPayload) {
     return requestJson<{ anniversary: BackendAnniversary }>('/anniversaries', {
       method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  listCheckinCompletions(token: string) {
+    return requestJson<CheckinCompletionListResponse>('/checkins/completions', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  upsertCheckinCompletion(token: string, itemId: string, payload: UpsertCheckinCompletionPayload) {
+    return requestJson<{ completion: BackendCheckinCompletion }>(`/checkins/completions/${itemId}`, {
+      method: 'PUT',
       headers: {
         authorization: `Bearer ${token}`,
       },
