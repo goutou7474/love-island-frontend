@@ -86,18 +86,25 @@ export type UpsertCheckinCompletionPayload = Pick<
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers)
+
+  if (options.body && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json')
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: {
-      'content-type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   })
+
+  if (response.status === 204) {
+    return null as T
+  }
 
   const data = await response.json().catch(() => null)
 
   if (!response.ok) {
-    const message = data?.error?.message ?? '小岛暂时连不上，请稍后再试'
+    const message = data?.error?.message ?? data?.message ?? `小岛暂时连不上，请稍后再试 (${response.status})`
     throw new Error(message)
   }
 
@@ -148,6 +155,14 @@ export const backendApi = {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+    })
+  },
+  deleteCheckinCompletion(token: string, itemId: string) {
+    return requestJson<null>(`/checkins/completions/${itemId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
     })
   },
 }

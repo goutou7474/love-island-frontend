@@ -69,6 +69,10 @@ type Dialog =
   | 'annualReport'
   | null
 
+type ConfirmDeleteTarget =
+  | { kind: 'memory' | 'wish' | 'anniversary' | 'checklistItem' | 'checkinCompletion'; id: string }
+  | null
+
 const tabItems: Array<{ id: MainTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: '小屋', icon: Home },
   { id: 'checklist', label: '打卡', icon: ListChecks },
@@ -88,6 +92,7 @@ const wishCategoryLabels: Record<WishCategory, string> = {
 const today = '2026-05-22'
 const mobileModalWidth = 'min(360px, calc(100vw - 32px))'
 const authTokenKey = 'love-island-auth-token'
+const hiddenChecklistItemsKey = 'love-island-hidden-checklist-items'
 const backendColorMap: Record<string, string> = {
   rose: '#ee8c7c',
   pink: '#f49aaa',
@@ -164,6 +169,66 @@ function resetCheckinCompletion(item: ChecklistItem): ChecklistItem {
   }
 }
 
+function readHiddenChecklistItemIds() {
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(hiddenChecklistItemsKey) ?? '[]') as string[])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function writeHiddenChecklistItemIds(ids: Set<string>) {
+  window.localStorage.setItem(hiddenChecklistItemsKey, JSON.stringify(Array.from(ids)))
+}
+
+function hideChecklistItems(categories: ChecklistCategory[], hiddenIds: Set<string>): ChecklistCategory[] {
+  return categories.map((category) => ({
+    ...category,
+    items: category.items.filter((item) => !hiddenIds.has(item.id)),
+  }))
+}
+
+function removeChecklistItem(categories: ChecklistCategory[], itemId: string): ChecklistCategory[] {
+  return categories.map((category) => ({
+    ...category,
+    items: category.items.filter((item) => item.id !== itemId),
+  }))
+}
+
+function cancelChecklistCompletion(categories: ChecklistCategory[], itemId: string): ChecklistCategory[] {
+  return categories.map((category) => ({
+    ...category,
+    items: category.items.map((item) => item.id === itemId ? resetCheckinCompletion(item) : item),
+  }))
+}
+
+function confirmDeleteCopy(target: ConfirmDeleteTarget) {
+  if (target?.kind === 'checkinCompletion') {
+    return {
+      title: '取消完成记录',
+      message: '这只会撤销这一次成功打卡，打卡项还会留在清单里，适合防止误触。',
+      confirmText: '确认撤销',
+      danger: false,
+    }
+  }
+
+  if (target?.kind === 'checklistItem') {
+    return {
+      title: '删除打卡项',
+      message: '删除后这个打卡项会从当前清单隐藏；如果它已经完成，也会先撤销后端完成记录。',
+      confirmText: '删除',
+      danger: true,
+    }
+  }
+
+  return {
+    title: '确认删除',
+    message: '删除后当前原型会立即从列表移除。',
+    confirmText: '删除',
+    danger: true,
+  }
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<LoveAppSnapshot | null>(null)
   const [view, setView] = useState<AppView>('login')
@@ -176,7 +241,7 @@ export default function App() {
   const [selectedChecklistItem, setSelectedChecklistItem] = useState<ChecklistItem | null>(null)
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
   const [selectedWish, setSelectedWish] = useState<Wish | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'memory' | 'wish' | 'anniversary'; id: string } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteTarget>(null)
 
   const [checklistCategories, setChecklistCategories] = useState<ChecklistCategory[]>([])
   const [memories, setMemories] = useState<Memory[]>([])
@@ -202,9 +267,10 @@ export default function App() {
       const data = await mockLoveAppApi.getSnapshot()
 
       if (cancelled) return
+      const visibleChecklistCategories = hideChecklistItems(data.checklistCategories, readHiddenChecklistItemIds())
 
       setSnapshot(data)
-      setChecklistCategories(mergeBackendCheckinCompletions(data.checklistCategories, []))
+      setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, []))
       setMemories(data.memories)
       setAnniversaries(data.anniversaries)
       setWishes(data.wishes)
@@ -228,7 +294,7 @@ export default function App() {
         if (cancelled) return
 
         setAnniversaries(anniversaryResult.anniversaries.map(mapBackendAnniversary))
-        setChecklistCategories(mergeBackendCheckinCompletions(data.checklistCategories, checkinResult.completions))
+        setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, checkinResult.completions))
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
@@ -400,6 +466,30 @@ export default function App() {
     }, '打卡完成，今天又多了一点可爱')
   }
 
+  const deleteChecklistItem = async (itemId: string) => {
+    const target = checklistCategories.flatMap((category) => category.items).find((item) => item.id === itemId)
+    const token = window.localStorage.getItem(authTokenKey)
+
+    if (target?.completedAt && token) {
+      await backendApi.deleteCheckinCompletion(token, itemId)
+    }
+
+    const hiddenIds = readHiddenChecklistItemIds()
+    hiddenIds.add(itemId)
+    writeHiddenChecklistItemIds(hiddenIds)
+    setChecklistCategories((current) => removeChecklistItem(current, itemId))
+  }
+
+  const cancelCheckinCompletion = async (itemId: string) => {
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      throw new Error('请先登录后再撤销打卡')
+    }
+
+    await backendApi.deleteCheckinCompletion(token, itemId)
+    setChecklistCategories((current) => cancelChecklistCompletion(current, itemId))
+  }
+
   const submitMemory = (event: FormEvent) => {
     event.preventDefault()
     if (!memoryForm.title.trim()) {
@@ -486,6 +576,20 @@ export default function App() {
 
   const deleteSelected = () => {
     if (!confirmDelete) return
+    if (confirmDelete.kind === 'checklistItem') {
+      runSaving(async () => {
+        await deleteChecklistItem(confirmDelete.id)
+        setConfirmDelete(null)
+      }, '打卡项已经移除')
+      return
+    }
+    if (confirmDelete.kind === 'checkinCompletion') {
+      runSaving(async () => {
+        await cancelCheckinCompletion(confirmDelete.id)
+        setConfirmDelete(null)
+      }, '已取消这次完成记录')
+      return
+    }
     if (confirmDelete.kind === 'memory') setMemories((current) => current.filter((item) => item.id !== confirmDelete.id))
     if (confirmDelete.kind === 'wish') setWishes((current) => current.filter((item) => item.id !== confirmDelete.id))
     if (confirmDelete.kind === 'anniversary') setAnniversaries((current) => current.filter((item) => item.id !== confirmDelete.id))
@@ -532,11 +636,13 @@ export default function App() {
           completedCount={completedCount}
           total={totalChecklist}
           onAdd={() => setDialog('addChecklist')}
+          onCancelCheckin={(item) => setConfirmDelete({ kind: 'checkinCompletion', id: item.id })}
           onCheckin={(item) => {
             setSelectedChecklistItem(item)
             setCheckinForm({ date: today, location: item.location ?? '', note: item.note ?? '' })
             setDialog('checkin')
           }}
+          onDelete={(item) => setConfirmDelete({ kind: 'checklistItem', id: item.id })}
         />
       )
     }
@@ -797,10 +903,10 @@ export default function App() {
 
       <ConfirmDialog
         open={Boolean(confirmDelete)}
-        title="确认删除"
-        message="删除后当前原型会立即从列表移除。正式接入后端时会调用对应 delete API，并保留失败回滚。"
-        confirmText="删除"
-        danger
+        title={confirmDeleteCopy(confirmDelete).title}
+        message={confirmDeleteCopy(confirmDelete).message}
+        confirmText={confirmDeleteCopy(confirmDelete).confirmText}
+        danger={confirmDeleteCopy(confirmDelete).danger}
         onCancel={() => setConfirmDelete(null)}
         onConfirm={deleteSelected}
       />
@@ -1020,7 +1126,23 @@ function HomePage({
   )
 }
 
-function ChecklistPage({ categories, completedCount, total, onAdd, onCheckin }: { categories: ChecklistCategory[]; completedCount: number; total: number; onAdd: () => void; onCheckin: (item: ChecklistItem) => void }) {
+function ChecklistPage({
+  categories,
+  completedCount,
+  total,
+  onAdd,
+  onCancelCheckin,
+  onCheckin,
+  onDelete,
+}: {
+  categories: ChecklistCategory[]
+  completedCount: number
+  total: number
+  onAdd: () => void
+  onCancelCheckin: (item: ChecklistItem) => void
+  onCheckin: (item: ChecklistItem) => void
+  onDelete: (item: ChecklistItem) => void
+}) {
   const [activeCategoryId, setActiveCategoryId] = useState(categories[0]?.id ?? '')
   const progress = Math.round((completedCount / Math.max(1, total)) * 100)
   const featured = categories[0]?.items.find((item) => !item.completedAt) ?? categories[0]?.items[0]
@@ -1087,18 +1209,32 @@ function ChecklistPage({ categories, completedCount, total, onAdd, onCheckin }: 
           </Card>
           <div className="checklist-items">
             {activeItems.map((item) => (
-              <button className={`checkin-item-card tap-card ${item.completedAt ? 'is-done' : ''}`} key={item.id} onClick={() => onCheckin(item)}>
-                <div className="split">
-                  <div className="row min-w-0">
-                    <span className="checkin-check"><CheckCircle2 size={18} /></span>
-                    <div className="min-w-0">
-                      <p className="m-0 text-[14px] font-black text-[#725d42]">{item.title}</p>
-                      <p className="m-0 mt-1 text-[11px] leading-5 text-[#9f927d]">{item.description}</p>
+              <div className={`checkin-item-card tap-card ${item.completedAt ? 'is-done' : ''}`} key={item.id}>
+                <button className="checkin-main-action" onClick={() => onCheckin(item)}>
+                  <div className="split">
+                    <div className="row min-w-0">
+                      <span className="checkin-check"><CheckCircle2 size={18} /></span>
+                      <div className="min-w-0">
+                        <p className="m-0 text-[14px] font-black text-[#725d42]">{item.title}</p>
+                        <p className="m-0 mt-1 text-[11px] leading-5 text-[#9f927d]">{item.description}</p>
+                      </div>
                     </div>
+                    <ChevronRight className="shrink-0 text-[#c4b89e]" size={18} />
                   </div>
-                  <ChevronRight className="shrink-0 text-[#c4b89e]" size={18} />
+                </button>
+                <div className="checkin-item-actions">
+                  {item.completedAt ? (
+                    <button className="checkin-mini-action" onClick={() => onCancelCheckin(item)} title="取消完成">
+                      <RotateCcw size={14} />
+                      <span>取消完成</span>
+                    </button>
+                  ) : null}
+                  <button className="checkin-mini-action is-danger" onClick={() => onDelete(item)} title="删除打卡项">
+                    <Trash2 size={14} />
+                    <span>删除</span>
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
