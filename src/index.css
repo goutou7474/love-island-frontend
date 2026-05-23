@@ -328,11 +328,21 @@ select:focus-visible {
 }
 
 .photo-preview-item img,
-.memory-slide-image,
 .memory-detail-photo-grid img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
+}
+
+.memory-slide-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.58), transparent 28%),
+    linear-gradient(135deg, rgba(255, 248, 223, 0.78), rgba(230, 249, 246, 0.56));
 }
 
 .row {
