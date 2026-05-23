@@ -394,6 +394,7 @@ function buildBackendSnapshotState(backendSnapshot: BackendAppSnapshot, visibleC
     wishes: backendSnapshot.wishes.map(mapBackendWish),
     secrets: backendSnapshot.secrets.map((secret) => mapBackendSecret(secret, backendSnapshot.user.id)),
     settings: mapBackendSettings(backendSnapshot.settings),
+    stats: backendSnapshot.stats,
   }
 }
 
@@ -509,6 +510,7 @@ export default function App() {
     setSnapshot((current) => current ? {
       ...current,
       couple: backendState.couple(current.couple),
+      stats: backendState.stats,
     } : current)
     setAnniversaries(backendState.anniversaries)
     setChecklistCategories(backendState.checklistCategories)

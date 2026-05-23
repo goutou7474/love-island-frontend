@@ -207,6 +207,15 @@ export interface SettingsResponse {
   settings: BackendAppSettings
 }
 
+export interface BackendAppStats {
+  daysTogether: number
+  checklistDone: number
+  wishesDone: number
+  memoriesCount: number
+  heatmap: Array<{ date: string; count: number }>
+  participation: Array<{ userId: string; name: string; percent: number; color: string }>
+}
+
 export interface BackendAppSnapshot {
   user: BackendUser
   couple: BackendCouple
@@ -218,6 +227,7 @@ export interface BackendAppSnapshot {
   wishes: BackendWish[]
   secrets: BackendSecretMessage[]
   settings: BackendAppSettings
+  stats: BackendAppStats
 }
 
 export type UpdateSettingsPayload = Partial<Pick<
