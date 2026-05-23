@@ -147,7 +147,7 @@ DELETE /anniversaries/:anniversaryId
 - 我的生日：农历 2003-02-25
 - 结婚纪念日：预留，后续添加
 
-农历日期建议后端统一转换和提醒，前端只展示后端返回的 `nextOccurrenceDate` 和 `daysLeft`。
+后端使用农历换算生成 `nextOccurrenceDate`、`daysUntil` 和 `sourceDateLabel`。例如在 2026-05-23 查看，农历 2003-04-03 的下一次公历日期是 2027-05-08；前端只展示这些后端字段，不再按公历生日硬算。
 
 ### Wishes
 

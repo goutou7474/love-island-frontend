@@ -133,6 +133,12 @@ function nextAnnualDays(date: string, todayDate = getBeijingDateString()) {
   return Math.ceil((next.getTime() - now) / 86_400_000)
 }
 
+function anniversaryDays(item: Anniversary, todayDate = getBeijingDateString()) {
+  if (typeof item.daysUntil === 'number') return item.daysUntil
+  if (item.nextOccurrenceDate) return dayDiff(todayDate, item.nextOccurrenceDate)
+  return item.repeat === 'yearly' ? nextAnnualDays(item.date, todayDate) : dayDiff(todayDate, item.date)
+}
+
 function getBeijingDateString(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     day: '2-digit',
@@ -172,6 +178,9 @@ function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
     isMain: item.isMain,
     kind: item.kind === 'proposal' || item.kind === 'engagement' ? 'custom' : item.kind,
     lunarDate: item.lunarDate ?? undefined,
+    nextOccurrenceDate: item.nextOccurrenceDate,
+    daysUntil: item.daysUntil,
+    sourceDateLabel: item.sourceDateLabel,
     owner: item.owner === 'partner' ? 'yangyang' : item.owner === 'owner' ? 'yanyan' : 'both',
   }
 }
@@ -637,7 +646,7 @@ export default function App() {
     [checklistCategories],
   )
   const nextAnniversary = useMemo(
-    () => anniversaries.map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date, todayString) : dayDiff(todayString, item.date) })).sort((a, b) => a.days - b.days)[0],
+    () => anniversaries.map((item) => ({ ...item, days: anniversaryDays(item, todayString) })).sort((a, b) => a.days - b.days)[0],
     [anniversaries, todayString],
   )
   const liveStats = useMemo<AppStats | null>(
@@ -2004,7 +2013,7 @@ function MemoryList({ memories, onOpen }: { memories: Memory[]; onOpen: (memory:
 
 function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { anniversaries: Anniversary[]; todayDate: string; onAdd: () => void; onDelete: (id: string) => void }) {
   const decorated = anniversaries
-    .map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date, todayDate) : dayDiff(todayDate, item.date) }))
+    .map((item) => ({ ...item, days: anniversaryDays(item, todayDate) }))
     .sort((a, b) => a.days - b.days)
   const loveAnniversary = anniversaries.find((item) => item.kind === 'love' || item.isMain) ?? anniversaries[0]
   const birthdayItems = anniversaries.filter((item) => item.kind === 'birthday')
@@ -2076,8 +2085,8 @@ function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { annive
             <div>
               <span className="leaf-chip">{item.owner === 'yangyang' ? '她的生日' : '我的生日'}</span>
               <h3>{item.name}</h3>
-              <p>{item.lunarDate ?? item.date}</p>
-              <p>每年提醒 · 还有 {nextAnnualDays(item.date, todayDate)} 天</p>
+              <p>{item.sourceDateLabel ?? item.lunarDate ?? item.date}</p>
+              <p>{item.nextOccurrenceDate ? `下次公历 ${item.nextOccurrenceDate}` : '每年提醒'} · 还有 {anniversaryDays(item, todayDate)} 天</p>
             </div>
           </div>
         ))}

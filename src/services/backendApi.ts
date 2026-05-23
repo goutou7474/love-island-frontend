@@ -45,6 +45,9 @@ export interface BackendAnniversary {
   color: string
   isMain: boolean
   note: string | null
+  nextOccurrenceDate?: string
+  daysUntil?: number
+  sourceDateLabel?: string
   createdAt: string
 }
 

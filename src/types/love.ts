@@ -68,6 +68,9 @@ export interface Anniversary {
   isMain?: boolean
   kind?: 'love' | 'birthday' | 'wedding' | 'custom'
   lunarDate?: string
+  nextOccurrenceDate?: string
+  daysUntil?: number
+  sourceDateLabel?: string
   owner?: 'yanyan' | 'yangyang' | 'both'
 }
 
