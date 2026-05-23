@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendAppSettings, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -260,6 +260,23 @@ function cancelChecklistCompletion(categories: ChecklistCategory[], itemId: stri
   }))
 }
 
+function buildBackendSnapshotState(backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) {
+  return {
+    currentUser: backendSnapshot.user,
+    anniversaries: backendSnapshot.anniversaries.map(mapBackendAnniversary),
+    checklistCategories: mergeBackendCheckinCompletions(
+      visibleChecklistCategories,
+      backendSnapshot.checkinCompletions,
+    ),
+    memories: backendSnapshot.memories.length > 0 ? backendSnapshot.memories.map(mapBackendMemory) : null,
+    wishes: backendSnapshot.wishes.length > 0 ? backendSnapshot.wishes.map(mapBackendWish) : null,
+    secrets: backendSnapshot.secrets.length > 0
+      ? backendSnapshot.secrets.map((secret) => mapBackendSecret(secret, backendSnapshot.user.id))
+      : null,
+    settings: mapBackendSettings(backendSnapshot.settings),
+  }
+}
+
 function confirmDeleteCopy(target: ConfirmDeleteTarget) {
   if (target?.kind === 'checkinCompletion') {
     return {
@@ -318,6 +335,23 @@ export default function App() {
   const [joinCode, setJoinCode] = useState('YY-0521')
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
+  const applyBackendSnapshot = (backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) => {
+    const backendState = buildBackendSnapshotState(backendSnapshot, visibleChecklistCategories)
+
+    setCurrentUser(backendState.currentUser)
+    setAnniversaries(backendState.anniversaries)
+    setChecklistCategories(backendState.checklistCategories)
+    if (backendState.memories) {
+      setMemories(backendState.memories)
+    }
+    if (backendState.wishes) {
+      setWishes(backendState.wishes)
+    }
+    if (backendState.secrets) {
+      setSecrets(backendState.secrets)
+    }
+    setSettings(backendState.settings)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -344,34 +378,14 @@ export default function App() {
       }
 
       try {
-        const session = await backendApi.me(token)
-        const [anniversaryResult, checkinResult, memoryResult, wishResult, secretResult, settingsResult] = await Promise.all([
-          backendApi.listAnniversaries(token),
-          backendApi.listCheckinCompletions(token),
-          backendApi.listMemories(token),
-          backendApi.listWishes(token),
-          backendApi.listSecrets(token),
-          backendApi.getSettings(token),
-        ])
+        const backendSnapshot = await backendApi.getSnapshot(token)
 
         if (cancelled) return
 
-        setCurrentUser(session.user)
-        setAnniversaries(anniversaryResult.anniversaries.map(mapBackendAnniversary))
-        setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, checkinResult.completions))
-        if (memoryResult.memories.length > 0) {
-          setMemories(memoryResult.memories.map(mapBackendMemory))
-        }
-        if (wishResult.wishes.length > 0) {
-          setWishes(wishResult.wishes.map(mapBackendWish))
-        }
-        if (secretResult.secrets.length > 0) {
-          setSecrets(secretResult.secrets.map((secret) => mapBackendSecret(secret, session.user.id)))
-        }
-        setSettings(mapBackendSettings(settingsResult.settings))
+        applyBackendSnapshot(backendSnapshot, visibleChecklistCategories)
         setView('home')
         setActiveTab('home')
-        showToast('success', `欢迎回来，${session.user.displayName}`)
+        showToast('success', `欢迎回来，${backendSnapshot.user.displayName}`)
       } catch {
         window.localStorage.removeItem(authTokenKey)
         setCurrentUser(null)
@@ -422,42 +436,6 @@ export default function App() {
     )
   }
 
-  const loadBackendAnniversaries = async (token: string) => {
-    const result = await backendApi.listAnniversaries(token)
-    setAnniversaries(result.anniversaries.map(mapBackendAnniversary))
-  }
-
-  const loadBackendCheckins = async (token: string) => {
-    const result = await backendApi.listCheckinCompletions(token)
-    setChecklistCategories((current) => mergeBackendCheckinCompletions(current, result.completions))
-  }
-
-  const loadBackendMemories = async (token: string) => {
-    const result = await backendApi.listMemories(token)
-    if (result.memories.length > 0) {
-      setMemories(result.memories.map(mapBackendMemory))
-    }
-  }
-
-  const loadBackendWishes = async (token: string) => {
-    const result = await backendApi.listWishes(token)
-    if (result.wishes.length > 0) {
-      setWishes(result.wishes.map(mapBackendWish))
-    }
-  }
-
-  const loadBackendSecrets = async (token: string, currentUserId: string) => {
-    const result = await backendApi.listSecrets(token)
-    if (result.secrets.length > 0) {
-      setSecrets(result.secrets.map((secret) => mapBackendSecret(secret, currentUserId)))
-    }
-  }
-
-  const loadBackendSettings = async (token: string) => {
-    const result = await backendApi.getSettings(token)
-    setSettings(mapBackendSettings(result.settings))
-  }
-
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -481,19 +459,12 @@ export default function App() {
       setAuthSubmitting(true)
       const login = await backendApi.login(email, password)
       window.localStorage.setItem(authTokenKey, login.token)
-      const session = await backendApi.me(login.token)
-      setCurrentUser(session.user)
-      await Promise.all([
-        loadBackendAnniversaries(login.token),
-        loadBackendCheckins(login.token),
-        loadBackendMemories(login.token),
-        loadBackendWishes(login.token),
-        loadBackendSecrets(login.token, session.user.id),
-        loadBackendSettings(login.token),
-      ])
+      const backendSnapshot = await backendApi.getSnapshot(login.token)
+      const visibleChecklistCategories = hideChecklistItems(snapshot.checklistCategories, readHiddenChecklistItemIds())
+      applyBackendSnapshot(backendSnapshot, visibleChecklistCategories)
       setView('home')
       setActiveTab('home')
-      showToast('success', `欢迎回来，${session.user.displayName}`)
+      showToast('success', `欢迎回来，${backendSnapshot.user.displayName}`)
     } catch (error) {
       showToast('error', error instanceof Error ? error.message : '登录失败，请检查账号密码')
       throw error

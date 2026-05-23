@@ -173,6 +173,17 @@ export interface SettingsResponse {
   settings: BackendAppSettings
 }
 
+export interface BackendAppSnapshot {
+  user: BackendUser
+  couple: BackendCouple
+  anniversaries: BackendAnniversary[]
+  checkinCompletions: BackendCheckinCompletion[]
+  memories: BackendMemory[]
+  wishes: BackendWish[]
+  secrets: BackendSecretMessage[]
+  settings: BackendAppSettings
+}
+
 export type UpdateSettingsPayload = Partial<Pick<
   BackendAppSettings,
   'anniversaryReminder' | 'dailyMessagePush' | 'partnerActivityNotify' | 'appLock' | 'softTheme'
@@ -215,6 +226,13 @@ export const backendApi = {
   },
   me(token: string) {
     return requestJson<MeResponse>('/me', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  getSnapshot(token: string) {
+    return requestJson<BackendAppSnapshot>('/app/snapshot', {
       headers: {
         authorization: `Bearer ${token}`,
       },
