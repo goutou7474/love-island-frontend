@@ -36,14 +36,17 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, resolveBackendAssetUrl, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
+import { backendApi, resolveBackendAssetUrl, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendCouple, type BackendCustomChecklistItem, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
+import { fetchWeatherForCities } from '@/services/weatherApi'
 import type {
   Anniversary,
   AppSettings,
   AppView,
+  AppStats,
   ChecklistCategory,
   ChecklistItem,
+  CoupleProfile,
   MainTab,
   Memory,
   SecretMessage,
@@ -89,7 +92,7 @@ const wishCategoryLabels: Record<WishCategory, string> = {
   learn: '想学',
 }
 
-const today = '2026-05-22'
+const today = getBeijingDateString()
 const mobileModalWidth = 'min(360px, calc(100vw - 32px))'
 const authTokenKey = 'love-island-auth-token'
 const hiddenChecklistItemsKey = 'love-island-hidden-checklist-items'
@@ -100,22 +103,56 @@ const backendColorMap: Record<string, string> = {
   mint: '#82d5bb',
 }
 
-const dayDiff = (from: string, to = today) => {
-  const start = new Date(from).getTime()
-  const end = new Date(to).getTime()
+const dayDiff = (from: string, to = getBeijingDateString()) => {
+  const start = dateToUtcDay(from)
+  const end = dateToUtcDay(to)
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1)
 }
 
-function nextAnnualDays(date: string) {
-  const now = new Date(today)
-  const base = new Date(date)
-  const next = new Date(now.getFullYear(), base.getMonth(), base.getDate())
-  if (next.getTime() < now.getTime()) next.setFullYear(now.getFullYear() + 1)
-  return Math.ceil((next.getTime() - now.getTime()) / 86_400_000)
+const relationshipDays = (startDate: string, todayDate = getBeijingDateString()) => (
+  Math.max(0, Math.floor((dateToUtcDay(todayDate) - dateToUtcDay(startDate)) / 86_400_000) + 1)
+)
+
+const daysUntilDate = (date: string, todayDate = getBeijingDateString()) => (
+  Math.max(0, Math.ceil((dateToUtcDay(date) - dateToUtcDay(todayDate)) / 86_400_000))
+)
+
+function nextAnnualDays(date: string, todayDate = getBeijingDateString()) {
+  const [year] = todayDate.split('-').map(Number)
+  const [, month, day] = date.split('-').map(Number)
+  const now = dateToUtcDay(todayDate)
+  const base = new Date(Date.UTC(year, month - 1, day))
+  const next = new Date(base)
+  if (next.getTime() < now) next.setUTCFullYear(year + 1)
+  return Math.ceil((next.getTime() - now) / 86_400_000)
 }
 
-function makeId(prefix: string) {
-  return `${prefix}-${Date.now()}`
+function getBeijingDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
+
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+function dateToUtcDay(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return Date.UTC(year, month - 1, day)
+}
+
+function formatDateTicket(value: string) {
+  const date = new Date(`${value}T00:00:00+08:00`)
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Shanghai' }).format(date).toUpperCase()
+  const [, month, day] = value.split('-')
+
+  return {
+    weekday,
+    label: `${Number(month)}.${Number(day)}`,
+  }
 }
 
 function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
@@ -130,6 +167,43 @@ function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
     kind: item.kind === 'proposal' || item.kind === 'engagement' ? 'custom' : item.kind,
     lunarDate: item.lunarDate ?? undefined,
     owner: item.owner === 'partner' ? 'yangyang' : item.owner === 'owner' ? 'yanyan' : 'both',
+  }
+}
+
+function mapBackendCoupleProfile(
+  couple: BackendCouple,
+  members: BackendUser[],
+  fallback: CoupleProfile,
+): CoupleProfile {
+  const orderedMembers = [
+    members.find((member) => member.id === couple.ownerUserId) ?? members[0],
+    members.find((member) => member.id !== couple.ownerUserId) ?? members[1],
+  ]
+
+  return {
+    id: couple.id,
+    spaceName: couple.name,
+    inviteCode: fallback.inviteCode,
+    startDate: couple.startDate,
+    users: [
+      mapBackendMember(orderedMembers[0], fallback.users[0]),
+      mapBackendMember(orderedMembers[1], fallback.users[1]),
+    ],
+  }
+}
+
+function mapBackendMember(member: BackendUser | undefined, fallback: CoupleProfile['users'][number]) {
+  if (!member) {
+    return fallback
+  }
+
+  return {
+    ...fallback,
+    id: member.id,
+    name: member.displayName,
+    city: member.city || fallback.city,
+    avatar: member.displayName.slice(0, 1) || fallback.avatar,
+    avatarUrl: member.avatarUrl ? resolveBackendAssetUrl(member.avatarUrl) : undefined,
   }
 }
 
@@ -154,6 +228,8 @@ function mapBackendWish(item: BackendWish): Wish {
     note: item.note,
     addedBy: item.addedByUserId,
     completedAt: item.completedAt ?? undefined,
+    completionNote: item.completionNote || undefined,
+    completionPhotos: item.completionPhotos.map(resolveBackendAssetUrl),
   }
 }
 
@@ -224,7 +300,34 @@ function resetCheckinCompletion(item: ChecklistItem): ChecklistItem {
     categoryId: item.categoryId,
     title: item.title,
     description: item.description,
+    isCustom: item.isCustom,
   }
+}
+
+function mergeCustomChecklistItems(
+  categories: ChecklistCategory[],
+  customItems: BackendCustomChecklistItem[],
+): ChecklistCategory[] {
+  const itemsByCategory = new Map<string, ChecklistItem[]>()
+
+  for (const item of customItems) {
+    const checklistItem: ChecklistItem = {
+      id: item.id,
+      categoryId: item.categoryId,
+      title: item.title,
+      description: item.description || '你们自己添加的小岛任务',
+      isCustom: true,
+    }
+    itemsByCategory.set(item.categoryId, [checklistItem, ...(itemsByCategory.get(item.categoryId) ?? [])])
+  }
+
+  return categories.map((category) => ({
+    ...category,
+    items: [
+      ...(itemsByCategory.get(category.id) ?? []),
+      ...category.items.filter((item) => !customItems.some((customItem) => customItem.id === item.id)),
+    ],
+  }))
 }
 
 function readHiddenChecklistItemIds() {
@@ -274,18 +377,22 @@ function readFileAsDataUrl(file: File) {
 }
 
 function buildBackendSnapshotState(backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) {
+  const checklistWithCustomItems = mergeCustomChecklistItems(
+    visibleChecklistCategories,
+    backendSnapshot.customChecklistItems ?? [],
+  )
+
   return {
     currentUser: backendSnapshot.user,
+    couple: (fallback: CoupleProfile) => mapBackendCoupleProfile(backendSnapshot.couple, backendSnapshot.members ?? [], fallback),
     anniversaries: backendSnapshot.anniversaries.map(mapBackendAnniversary),
     checklistCategories: mergeBackendCheckinCompletions(
-      visibleChecklistCategories,
+      checklistWithCustomItems,
       backendSnapshot.checkinCompletions,
     ),
-    memories: backendSnapshot.memories.length > 0 ? backendSnapshot.memories.map(mapBackendMemory) : null,
-    wishes: backendSnapshot.wishes.length > 0 ? backendSnapshot.wishes.map(mapBackendWish) : null,
-    secrets: backendSnapshot.secrets.length > 0
-      ? backendSnapshot.secrets.map((secret) => mapBackendSecret(secret, backendSnapshot.user.id))
-      : null,
+    memories: backendSnapshot.memories.map(mapBackendMemory),
+    wishes: backendSnapshot.wishes.map(mapBackendWish),
+    secrets: backendSnapshot.secrets.map((secret) => mapBackendSecret(secret, backendSnapshot.user.id)),
     settings: mapBackendSettings(backendSnapshot.settings),
   }
 }
@@ -319,6 +426,7 @@ function confirmDeleteCopy(target: ConfirmDeleteTarget) {
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<LoveAppSnapshot | null>(null)
+  const [todayString, setTodayString] = useState(getBeijingDateString)
   const [view, setView] = useState<AppView>('login')
   const [authChecking, setAuthChecking] = useState(true)
   const [authSubmitting, setAuthSubmitting] = useState(false)
@@ -342,11 +450,27 @@ export default function App() {
   const [checklistForm, setChecklistForm] = useState({ categoryId: 'first', title: '' })
   const [checkinForm, setCheckinForm] = useState({ date: today, location: '', note: '' })
   const [memoryForm, setMemoryForm] = useState({ title: '', date: today, location: '', mood: 'sweet' as Memory['mood'], note: '' })
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
+  const [memoryExistingPhotos, setMemoryExistingPhotos] = useState<string[]>([])
   const [memoryPhotoFiles, setMemoryPhotoFiles] = useState<File[]>([])
   const [memoryPhotoPreviews, setMemoryPhotoPreviews] = useState<string[]>([])
   const [anniversaryForm, setAnniversaryForm] = useState({ name: '', date: today, repeat: 'yearly' as Anniversary['repeat'], icon: '♡' })
   const [wishForm, setWishForm] = useState({ title: '', category: 'place' as WishCategory, priority: 2 as Wish['priority'], note: '' })
+  const [wishCompletionForm, setWishCompletionForm] = useState({ note: '' })
+  const [wishPhotoFiles, setWishPhotoFiles] = useState<File[]>([])
+  const [wishPhotoPreviews, setWishPhotoPreviews] = useState<string[]>([])
   const [secretForm, setSecretForm] = useState({ title: '', content: '', openMode: 'now' as SecretMessage['openMode'], openAt: '' })
+  const [profileForm, setProfileForm] = useState({
+    spaceName: '',
+    startDate: today,
+    ownerName: '',
+    ownerCity: '',
+    partnerName: '',
+    partnerCity: '',
+  })
+  const [avatarRole, setAvatarRole] = useState<'owner' | 'partner'>('owner')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState('')
   const [joinCode, setJoinCode] = useState('YY-0521')
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
@@ -367,23 +491,33 @@ export default function App() {
     setMemoryPhotoFiles(nextFiles)
     setMemoryPhotoPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
   }
+  const selectWishPhotos = async (files: FileList | null) => {
+    const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
+    const nextFiles = selectedFiles.slice(0, 3)
+    setWishPhotoFiles(nextFiles)
+    setWishPhotoPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
+  }
+  const selectAvatarPhoto = async (files: FileList | null) => {
+    const file = Array.from(files ?? []).find((item) => item.type.startsWith('image/')) ?? null
+    setAvatarFile(file)
+    setAvatarPreview(file ? await readFileAsDataUrl(file) : '')
+  }
   const applyBackendSnapshot = (backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) => {
     const backendState = buildBackendSnapshotState(backendSnapshot, visibleChecklistCategories)
 
     setCurrentUser(backendState.currentUser)
+    setSnapshot((current) => current ? {
+      ...current,
+      couple: backendState.couple(current.couple),
+    } : current)
     setAnniversaries(backendState.anniversaries)
     setChecklistCategories(backendState.checklistCategories)
-    if (backendState.memories) {
-      setMemories(backendState.memories)
-    }
-    if (backendState.wishes) {
-      setWishes(backendState.wishes)
-    }
-    if (backendState.secrets) {
-      setSecrets(backendState.secrets)
-    }
+    setMemories(backendState.memories)
+    setWishes(backendState.wishes)
+    setSecrets(backendState.secrets)
     setSettings(backendState.settings)
   }
+  const weatherCityKey = snapshot?.couple.users.map((user) => user.city).filter(Boolean).join('|') ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -436,6 +570,33 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTodayString(getBeijingDateString())
+    }, 60_000)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const cities = weatherCityKey.split('|').filter(Boolean)
+    if (cities.length === 0) return
+
+    let cancelled = false
+    fetchWeatherForCities(cities)
+      .then((weather) => {
+        if (cancelled || weather.length === 0) return
+        setSnapshot((current) => current ? { ...current, weather } : current)
+      })
+      .catch(() => {
+        // 保留本地天气占位，不打断主流程。
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [weatherCityKey])
+
+  useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => setToast(null), 2600)
     return () => window.clearTimeout(timer)
@@ -452,11 +613,27 @@ export default function App() {
     [checklistCategories],
   )
   const nextAnniversary = useMemo(
-    () => anniversaries.map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date) : dayDiff(today, item.date) })).sort((a, b) => a.days - b.days)[0],
-    [anniversaries],
+    () => anniversaries.map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date, todayString) : dayDiff(todayString, item.date) })).sort((a, b) => a.days - b.days)[0],
+    [anniversaries, todayString],
+  )
+  const liveStats = useMemo<AppStats | null>(
+    () => stats && couple ? {
+      ...stats,
+      daysTogether: relationshipDays(couple.startDate, todayString),
+      checklistDone: completedCount,
+      memoriesCount: memories.length,
+      wishesDone: wishes.filter((wish) => wish.completedAt).length,
+      participation: stats.participation.map((item, index) => ({
+        ...item,
+        userId: couple.users[index]?.id ?? item.userId,
+        name: couple.users[index]?.name ?? item.name,
+        color: couple.users[index]?.color ?? item.color,
+      })),
+    } : null,
+    [completedCount, couple, memories.length, stats, todayString, wishes],
   )
 
-  if (!snapshot || !settings || !couple || !stats || authChecking) {
+  if (!snapshot || !settings || !couple || !stats || !liveStats || authChecking) {
     return (
       <div className="island-stage">
         <div className="phone-frame">
@@ -529,13 +706,28 @@ export default function App() {
       return
     }
     runSaving(async () => {
-      await mockLoveAppApi.saveChecklistItem(checklistForm)
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再添加打卡项')
+      }
+
+      const result = await backendApi.createCustomChecklistItem(token, {
+        categoryId: checklistForm.categoryId,
+        title: checklistForm.title.trim(),
+        description: '你们自己添加的小岛任务',
+      })
       setChecklistCategories((current) => current.map((category) => (
-        category.id === checklistForm.categoryId
+        category.id === result.item.categoryId
           ? {
             ...category,
             items: [
-              { id: makeId('c'), categoryId: category.id, title: checklistForm.title, description: '新加入的小岛任务，等后端接入后会同步给两个人' },
+              {
+                id: result.item.id,
+                categoryId: result.item.categoryId,
+                title: result.item.title,
+                description: result.item.description || '你们自己添加的小岛任务',
+                isCustom: true,
+              },
               ...category.items,
             ],
           }
@@ -584,9 +776,14 @@ export default function App() {
       await backendApi.deleteCheckinCompletion(token, itemId)
     }
 
-    const hiddenIds = readHiddenChecklistItemIds()
-    hiddenIds.add(itemId)
-    writeHiddenChecklistItemIds(hiddenIds)
+    if (target?.isCustom && token) {
+      await backendApi.deleteCustomChecklistItem(token, itemId)
+    } else {
+      const hiddenIds = readHiddenChecklistItemIds()
+      hiddenIds.add(itemId)
+      writeHiddenChecklistItemIds(hiddenIds)
+    }
+
     setChecklistCategories((current) => removeChecklistItem(current, itemId))
   }
 
@@ -618,15 +815,25 @@ export default function App() {
           return result.asset.url
         }),
       )
-      const result = await backendApi.createMemory(token, {
+      const nextPhotos = [...memoryExistingPhotos, ...uploadedPhotos]
+      const result = editingMemoryId ? await backendApi.updateMemory(token, editingMemoryId, {
         ...memoryForm,
-        photos: uploadedPhotos,
+        photos: nextPhotos,
+      }) : await backendApi.createMemory(token, {
+        ...memoryForm,
+        photos: nextPhotos,
       })
-      setMemories((current) => [mapBackendMemory(result.memory), ...current])
-      setMemoryForm({ title: '', date: today, location: '', mood: 'sweet', note: '' })
+      const nextMemory = mapBackendMemory(result.memory)
+      setMemories((current) => editingMemoryId
+        ? current.map((item) => item.id === editingMemoryId ? nextMemory : item)
+        : [nextMemory, ...current])
+      setSelectedMemory(nextMemory)
+      setEditingMemoryId(null)
+      setMemoryExistingPhotos([])
+      setMemoryForm({ title: '', date: todayString, location: '', mood: 'sweet', note: '' })
       setMemoryPhotoFiles([])
       setMemoryPhotoPreviews([])
-    }, '回忆已经存进拾光册')
+    }, editingMemoryId ? '拾光已经更新' : '回忆已经存进拾光册')
   }
 
   const submitAnniversary = (event: FormEvent) => {
@@ -651,7 +858,7 @@ export default function App() {
         note: null,
       })
       setAnniversaries((current) => [mapBackendAnniversary(result.anniversary), ...current])
-      setAnniversaryForm({ name: '', date: today, repeat: 'yearly', icon: '♡' })
+      setAnniversaryForm({ name: '', date: todayString, repeat: 'yearly', icon: '♡' })
     }, '纪念日已经记好')
   }
 
@@ -722,9 +929,22 @@ export default function App() {
         throw new Error('请先登录后再完成心愿')
       }
 
-      const result = await backendApi.completeWish(token, selectedWish.id, { completedAt: today })
+      const completionPhotos = await Promise.all(
+        wishPhotoFiles.map(async (file) => {
+          const result = await backendApi.uploadMedia(token, file)
+          return result.asset.url
+        }),
+      )
+      const result = await backendApi.completeWish(token, selectedWish.id, {
+        completedAt: todayString,
+        completionNote: wishCompletionForm.note.trim(),
+        completionPhotos,
+      })
       setWishes((current) => current.map((wish) => wish.id === selectedWish.id ? mapBackendWish(result.wish) : wish))
       setSelectedWish(null)
+      setWishCompletionForm({ note: '' })
+      setWishPhotoFiles([])
+      setWishPhotoPreviews([])
     }, '这个心愿达成啦')
   }
 
@@ -748,6 +968,103 @@ export default function App() {
         setSettings(previousSettings)
         showToast('error', error instanceof Error ? error.message : '设置保存失败，请稍后再试')
       })
+  }
+
+  const applyProfileResponse = (result: { user: BackendUser; couple: BackendCouple; members: BackendUser[] }) => {
+    setCurrentUser(result.user)
+    setSnapshot((current) => current ? {
+      ...current,
+      couple: mapBackendCoupleProfile(result.couple, result.members, current.couple),
+    } : current)
+  }
+
+  const openProfileEditor = () => {
+    setProfileForm({
+      spaceName: couple.spaceName,
+      startDate: couple.startDate,
+      ownerName: couple.users[0].name,
+      ownerCity: couple.users[0].city,
+      partnerName: couple.users[1].name,
+      partnerCity: couple.users[1].city,
+    })
+    setDialog('editProfile')
+  }
+
+  const openAvatarEditor = () => {
+    setAvatarRole(currentUser?.id === couple.users[1].id ? 'partner' : 'owner')
+    setAvatarFile(null)
+    setAvatarPreview('')
+    setDialog('avatar')
+  }
+
+  const openMemoryEditor = (memory?: Memory) => {
+    setEditingMemoryId(memory?.id ?? null)
+    setMemoryExistingPhotos(memory?.photos.filter(isPhotoUrl) ?? [])
+    setMemoryForm(memory ? {
+      title: memory.title,
+      date: memory.date,
+      location: memory.location,
+      mood: memory.mood,
+      note: memory.note,
+    } : { title: '', date: todayString, location: '', mood: 'sweet', note: '' })
+    setMemoryPhotoFiles([])
+    setMemoryPhotoPreviews([])
+    setDialog('addMemory')
+  }
+
+  const submitProfile = (event: FormEvent) => {
+    event.preventDefault()
+    runSaving(async () => {
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再保存档案')
+      }
+
+      const result = await backendApi.updateProfile(token, {
+        couple: {
+          name: profileForm.spaceName.trim(),
+          startDate: profileForm.startDate,
+        },
+        members: [
+          {
+            role: 'owner',
+            displayName: profileForm.ownerName.trim(),
+            city: profileForm.ownerCity.trim(),
+          },
+          {
+            role: 'partner',
+            displayName: profileForm.partnerName.trim(),
+            city: profileForm.partnerCity.trim(),
+          },
+        ],
+      })
+      applyProfileResponse(result)
+    }, '情侣档案已保存')
+  }
+
+  const submitAvatar = () => {
+    runSaving(async () => {
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再保存头像')
+      }
+      if (!avatarFile) {
+        throw new Error('请先选择一张头像图片')
+      }
+
+      const upload = await backendApi.uploadMedia(token, avatarFile)
+      const result = await backendApi.updateProfile(token, {
+        members: [
+          {
+            role: avatarRole,
+            avatarUrl: upload.asset.url,
+          },
+        ],
+      })
+      applyProfileResponse(result)
+      setAvatarFile(null)
+      setAvatarPreview('')
+    }, '头像已经换好')
   }
 
   const deleteSelected = () => {
@@ -814,7 +1131,7 @@ export default function App() {
     }
     if (view === 'invite') return <InvitePage inviteCode={couple.inviteCode} onBack={() => setView('settings')} />
     if (view === 'secrets') return <SecretsPage secrets={secrets} onBack={() => setView('home')} onWrite={() => setDialog('writeSecret')} onOpen={openSecret} />
-    if (view === 'stats') return <StatsPage stats={stats} onBack={() => setView('home')} onReport={() => setDialog('annualReport')} />
+    if (view === 'stats') return <StatsPage stats={liveStats} onBack={() => setView('home')} onReport={() => setDialog('annualReport')} />
     if (view === 'settings') {
       return (
         <SettingsPage
@@ -823,8 +1140,8 @@ export default function App() {
           onBack={() => setView('home')}
           onToggle={toggleSetting}
           onInvite={() => setDialog('invite')}
-          onEditProfile={() => setDialog('editProfile')}
-          onAvatar={() => setDialog('avatar')}
+          onEditProfile={openProfileEditor}
+          onAvatar={openAvatarEditor}
           onShowState={setView}
           onLogout={handleLogout}
         />
@@ -846,11 +1163,17 @@ export default function App() {
           categories={checklistCategories}
           completedCount={completedCount}
           total={totalChecklist}
-          onAdd={() => setDialog('addChecklist')}
+          onAdd={() => {
+            setChecklistForm((current) => ({
+              ...current,
+              categoryId: checklistCategories[0]?.id ?? current.categoryId,
+            }))
+            setDialog('addChecklist')
+          }}
           onCancelCheckin={(item) => setConfirmDelete({ kind: 'checkinCompletion', id: item.id })}
           onCheckin={(item) => {
             setSelectedChecklistItem(item)
-            setCheckinForm({ date: today, location: item.location ?? '', note: item.note ?? '' })
+            setCheckinForm({ date: todayString, location: item.location ?? '', note: item.note ?? '' })
             setDialog('checkin')
           }}
           onDelete={(item) => setConfirmDelete({ kind: 'checklistItem', id: item.id })}
@@ -861,7 +1184,7 @@ export default function App() {
       return (
         <TimelinePage
           memories={memories}
-          onAdd={() => setDialog('addMemory')}
+          onAdd={() => openMemoryEditor()}
           onOpen={(memory) => {
             setSelectedMemory(memory)
             setDialog('memoryDetail')
@@ -873,6 +1196,7 @@ export default function App() {
       return (
         <AnniversaryPage
           anniversaries={anniversaries}
+          todayDate={todayString}
           onAdd={() => setDialog('addAnniversary')}
           onDelete={(id) => setConfirmDelete({ kind: 'anniversary', id })}
         />
@@ -885,6 +1209,9 @@ export default function App() {
           onAdd={() => setDialog('addWish')}
           onComplete={(wish) => {
             setSelectedWish(wish)
+            setWishCompletionForm({ note: wish.completionNote ?? '' })
+            setWishPhotoFiles([])
+            setWishPhotoPreviews([])
             setDialog('completeWish')
           }}
           onDelete={(id) => setConfirmDelete({ kind: 'wish', id })}
@@ -895,6 +1222,7 @@ export default function App() {
     return (
       <HomePage
         snapshot={snapshot}
+        todayDate={todayString}
         checklistDone={completedCount}
         checklistTotal={totalChecklist}
         nextAnniversary={nextAnniversary}
@@ -973,7 +1301,7 @@ export default function App() {
         </form>
       </Modal>
 
-      <Modal open={dialog === 'addMemory'} title="添加拾光回忆" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
+      <Modal open={dialog === 'addMemory'} title={editingMemoryId ? '编辑拾光回忆' : '添加拾光回忆'} width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
         <form className="form-stack" onSubmit={submitMemory}>
           <Field label="标题"><input className="plain-input" value={memoryForm.title} onChange={(event) => setMemoryForm({ ...memoryForm, title: event.target.value })} /></Field>
           <div className="grid-2">
@@ -989,6 +1317,15 @@ export default function App() {
             </Field>
           </div>
           <Field label="地点"><input className="plain-input" value={memoryForm.location} onChange={(event) => setMemoryForm({ ...memoryForm, location: event.target.value })} /></Field>
+          {memoryExistingPhotos.length > 0 ? (
+            <div className="photo-preview-grid">
+              {memoryExistingPhotos.slice(0, 6).map((photo) => (
+                <div className="photo-preview-item" key={photo}>
+                  <img src={photo} alt="已保存的拾光照片" />
+                </div>
+              ))}
+            </div>
+          ) : null}
           <PhotoPicker
             files={memoryPhotoFiles}
             previews={memoryPhotoPreviews}
@@ -997,7 +1334,7 @@ export default function App() {
             }}
           />
           <Field label="正文"><textarea className="plain-textarea" value={memoryForm.note} onChange={(event) => setMemoryForm({ ...memoryForm, note: event.target.value })} /></Field>
-          <Button type="primary" htmlType="submit" block loading={saving}>存进拾光册</Button>
+          <Button type="primary" htmlType="submit" block loading={saving}>{editingMemoryId ? '保存修改' : '存进拾光册'}</Button>
         </form>
       </Modal>
 
@@ -1016,7 +1353,7 @@ export default function App() {
               <PhotoPlaceholder compact />
             )}
             <div className="grid-2">
-              <Button onClick={() => showToast('info', '编辑表单已预留，后续接后端时复用添加表单')}>编辑</Button>
+              <Button onClick={() => openMemoryEditor(selectedMemory)}>编辑</Button>
               <Button danger onClick={() => setConfirmDelete({ kind: 'memory', id: selectedMemory.id })}>删除</Button>
             </div>
           </div>
@@ -1035,7 +1372,7 @@ export default function App() {
               </select>
             </Field>
           </div>
-          <Field label="小图标"><input className="plain-input" value={anniversaryForm.icon} onChange={(event) => setAnniversaryForm({ ...anniversaryForm, icon: event.target.value })} maxLength={2} /></Field>
+          <p className="m-0 rounded-[20px] bg-[#e6f9f6] px-4 py-3 text-[12px] font-black leading-5 text-[#0f8178]">小岛会自动匹配纪念日图案，后续可以按类型细分求婚、订婚和结婚。</p>
           <Button type="primary" htmlType="submit" block loading={saving}>记住这一天</Button>
         </form>
       </Modal>
@@ -1064,8 +1401,15 @@ export default function App() {
 
       <Modal open={dialog === 'completeWish'} title="确认完成心愿" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
         <div className="form-stack">
-          <p className="m-0 text-[14px] leading-7 text-[#725d42]">要把「{selectedWish?.title}」移动到已实现区域吗？后续可以在这里补完成照片和备注。</p>
-          <PhotoPlaceholder compact />
+          <p className="m-0 text-[14px] leading-7 text-[#725d42]">把「{selectedWish?.title}」摘下来，顺手留下完成照片和一点备注。</p>
+          <PhotoPicker
+            files={wishPhotoFiles}
+            previews={wishPhotoPreviews}
+            onChange={(files) => {
+              void selectWishPhotos(files)
+            }}
+          />
+          <Field label="完成备注"><textarea className="plain-textarea" value={wishCompletionForm.note} onChange={(event) => setWishCompletionForm({ note: event.target.value })} placeholder="例如：晚上一起去买了，还拍了照片" /></Field>
           <Button type="primary" block loading={saving} onClick={completeWish}>完成啦</Button>
         </div>
       </Modal>
@@ -1087,31 +1431,36 @@ export default function App() {
       </Modal>
 
       <Modal open={dialog === 'editProfile'} title="编辑情侣档案" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
-        <form className="form-stack" onSubmit={(event) => {
-          event.preventDefault()
-          showToast('success', '档案保存入口已接好')
-          setDialog(null)
-        }}
-        >
-          <Field label="空间名"><input className="plain-input" defaultValue={couple.spaceName} /></Field>
+        <form className="form-stack" onSubmit={submitProfile}>
+          <Field label="空间名"><input className="plain-input" value={profileForm.spaceName} onChange={(event) => setProfileForm({ ...profileForm, spaceName: event.target.value })} /></Field>
           <div className="grid-2">
-            <Field label="你"><input className="plain-input" defaultValue={couple.users[0].name} /></Field>
-            <Field label="TA"><input className="plain-input" defaultValue={couple.users[1].name} /></Field>
+            <Field label="你"><input className="plain-input" value={profileForm.ownerName} onChange={(event) => setProfileForm({ ...profileForm, ownerName: event.target.value })} /></Field>
+            <Field label="TA"><input className="plain-input" value={profileForm.partnerName} onChange={(event) => setProfileForm({ ...profileForm, partnerName: event.target.value })} /></Field>
           </div>
-          <Field label="在一起日期"><input className="plain-input" type="date" defaultValue={couple.startDate} /></Field>
-          <Button type="primary" htmlType="submit" block>保存档案</Button>
+          <div className="grid-2">
+            <Field label="你的城市"><input className="plain-input" value={profileForm.ownerCity} onChange={(event) => setProfileForm({ ...profileForm, ownerCity: event.target.value })} /></Field>
+            <Field label="TA 的城市"><input className="plain-input" value={profileForm.partnerCity} onChange={(event) => setProfileForm({ ...profileForm, partnerCity: event.target.value })} /></Field>
+          </div>
+          <Field label="在一起日期"><input className="plain-input" type="date" value={profileForm.startDate} onChange={(event) => setProfileForm({ ...profileForm, startDate: event.target.value })} /></Field>
+          <Button type="primary" htmlType="submit" block loading={saving}>保存档案</Button>
         </form>
       </Modal>
 
       <Modal open={dialog === 'avatar'} title="更换头像" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
         <div className="form-stack">
-          <PhotoPlaceholder compact label="选择头像图片" />
-          <p className="m-0 text-[13px] leading-6 text-[#9f927d]">当前原型保留上传入口。接入后端时会上传 Firebase Storage，并把 URL 写入用户档案。</p>
-          <Button type="primary" block onClick={() => {
-            showToast('success', '头像上传入口已预留')
-            setDialog(null)
-          }}
-          >
+          <Field label="给谁换头像">
+            <select className="plain-select" value={avatarRole} onChange={(event) => setAvatarRole(event.target.value as 'owner' | 'partner')}>
+              <option value="owner">{couple.users[0].name}</option>
+              <option value="partner">{couple.users[1].name}</option>
+            </select>
+          </Field>
+          <label className="photo-upload photo-upload-compact">
+            <ImagePlus size={18} />
+            <span className="text-[13px] font-black">{avatarFile ? avatarFile.name : '选择头像图片'}</span>
+            <input accept="image/*" hidden type="file" onChange={(event) => void selectAvatarPhoto(event.target.files)} />
+          </label>
+          {avatarPreview ? <div className="avatar-preview"><img src={avatarPreview} alt="头像预览" /></div> : null}
+          <Button type="primary" block loading={saving} onClick={submitAvatar}>
             保存头像
           </Button>
         </div>
@@ -1120,7 +1469,7 @@ export default function App() {
       <Modal open={dialog === 'annualReport'} title="年度爱情报告" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
         <div className="form-stack">
           <div className="soft-card p-4">
-            <p className="m-0 text-[13px] leading-7 text-[#725d42]">今年你们完成了 {stats.checklistDone} 个打卡，留下 {stats.memoriesCount} 条回忆，实现 {stats.wishesDone} 个心愿。正式版会由后端聚合生成可分享报告。</p>
+            <p className="m-0 text-[13px] leading-7 text-[#725d42]">今年你们完成了 {liveStats.checklistDone} 个打卡，留下 {liveStats.memoriesCount} 条回忆，实现 {liveStats.wishesDone} 个心愿。正式版会由后端聚合生成可分享报告。</p>
           </div>
           <Button type="primary" block onClick={() => showToast('info', '报告页面会在后续版本展开')}>知道啦</Button>
         </div>
@@ -1243,6 +1592,7 @@ function LoginPage({
 
 function HomePage({
   snapshot,
+  todayDate,
   checklistDone,
   checklistTotal,
   nextAnniversary,
@@ -1251,6 +1601,7 @@ function HomePage({
   onWriteSecret,
 }: {
   snapshot: LoveAppSnapshot
+  todayDate: string
   checklistDone: number
   checklistTotal: number
   nextAnniversary?: Anniversary & { days: number }
@@ -1258,7 +1609,10 @@ function HomePage({
   onExtra: (view: AppView) => void
   onWriteSecret: () => void
 }) {
-  const days = dayDiff(snapshot.couple.startDate)
+  const days = relationshipDays(snapshot.couple.startDate, todayDate)
+  const daysUntilStart = daysUntilDate(snapshot.couple.startDate, todayDate)
+  const hasStarted = days > 0
+  const dateTicket = formatDateTicket(todayDate)
   const latestSecret = snapshot.secrets[0]
   const progress = Math.round((checklistDone / Math.max(1, checklistTotal)) * 100)
 
@@ -1273,8 +1627,8 @@ function HomePage({
             <p className="page-subtitle">想念、天气和约定，都在这里。</p>
           </div>
           <div className="date-ticket" aria-label="今天日期">
-            <span>FRI</span>
-            <strong>5.22</strong>
+            <span>{dateTicket.weekday}</span>
+            <strong>{dateTicket.label}</strong>
           </div>
         </div>
         <div className="island-scene" aria-hidden="true">
@@ -1293,9 +1647,9 @@ function HomePage({
         <Card color="app-teal">
           <div className="home-days-card">
             <div>
-              <p className="m-0 text-[12px] font-black opacity-80">在一起的第</p>
+              <p className="m-0 text-[12px] font-black opacity-80">{hasStarted ? '在一起的第' : '离在一起还有'}</p>
               <div className="mt-1 flex items-end gap-1">
-                <span className="text-[62px] font-black leading-none">{days}</span>
+                <span className="text-[62px] font-black leading-none">{hasStarted ? days : daysUntilStart}</span>
                 <span className="mb-2 text-[18px] font-black">天</span>
               </div>
               <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/45">
@@ -1303,7 +1657,7 @@ function HomePage({
               </div>
             </div>
             <div className="home-avatar-stack">
-              {snapshot.couple.users.map((user) => <AvatarBubble key={user.id} label={user.avatar} color={user.color} />)}
+              {snapshot.couple.users.map((user) => <AvatarBubble key={user.id} label={user.avatar} color={user.color} imageUrl={user.avatarUrl} />)}
               <span className="heart-pin">♡</span>
             </div>
           </div>
@@ -1556,18 +1910,18 @@ function MemoryList({ memories, onOpen }: { memories: Memory[]; onOpen: (memory:
   )
 }
 
-function AnniversaryPage({ anniversaries, onAdd, onDelete }: { anniversaries: Anniversary[]; onAdd: () => void; onDelete: (id: string) => void }) {
+function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { anniversaries: Anniversary[]; todayDate: string; onAdd: () => void; onDelete: (id: string) => void }) {
   const decorated = anniversaries
-    .map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date) : dayDiff(today, item.date) }))
+    .map((item) => ({ ...item, days: item.repeat === 'yearly' ? nextAnnualDays(item.date, todayDate) : dayDiff(todayDate, item.date) }))
     .sort((a, b) => a.days - b.days)
   const loveAnniversary = anniversaries.find((item) => item.kind === 'love' || item.isMain) ?? anniversaries[0]
   const birthdayItems = anniversaries.filter((item) => item.kind === 'birthday')
   const otherItems = decorated.filter((item) => item.kind !== 'love' && item.kind !== 'birthday' && !item.isMain)
-  const loveDate = loveAnniversary?.date ?? today
+  const loveDate = loveAnniversary?.date ?? todayDate
   const loveStart = new Date(loveDate).getTime()
-  const todayMs = new Date(today).getTime()
+  const todayMs = new Date(todayDate).getTime()
   const relationDays = Math.floor((todayMs - loveStart) / 86_400_000) + 1
-  const loveCountdown = nextAnnualDays(loveDate)
+  const loveCountdown = nextAnnualDays(loveDate, todayDate)
   const milestones: Array<{ label: string; caption: string; active: boolean; icon: IconSvgElement }> = [
     { label: '开始恋爱', caption: loveDate, active: relationDays >= 1, icon: InLoveIcon },
     { label: '一周年', caption: '1 year', active: relationDays >= 365, icon: CalendarLove02Icon },
@@ -1631,7 +1985,7 @@ function AnniversaryPage({ anniversaries, onAdd, onDelete }: { anniversaries: An
               <span className="leaf-chip">{item.owner === 'yangyang' ? '她的生日' : '我的生日'}</span>
               <h3>{item.name}</h3>
               <p>{item.lunarDate ?? item.date}</p>
-              <p>每年提醒 · 还有 {nextAnnualDays(item.date)} 天</p>
+              <p>每年提醒 · 还有 {nextAnnualDays(item.date, todayDate)} 天</p>
             </div>
           </div>
         ))}
@@ -1737,6 +2091,12 @@ function WishlistPage({ wishes, onAdd, onComplete, onDelete }: { wishes: Wish[];
                 <div>
                   <p className="m-0 text-[13px] font-black text-[#725d42]">{wish.title}</p>
                   <p className="m-0 mt-1 text-[11px] text-[#9f927d]">完成于 {wish.completedAt}</p>
+                  {wish.completionNote ? <p className="m-0 mt-1 text-[11px] leading-5 text-[#9f927d]">{wish.completionNote}</p> : null}
+                  {wish.completionPhotos?.length ? (
+                    <div className="done-wish-photos">
+                      {wish.completionPhotos.slice(0, 3).map((photo) => <img src={photo} alt={wish.title} key={photo} />)}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -1882,7 +2242,7 @@ function SettingsPage({
         <div className="settings-profile-card">
           <div className="split">
             <div className="row">
-              {couple.users.map((user) => <AvatarBubble key={user.id} label={user.avatar} color={user.color} small />)}
+              {couple.users.map((user) => <AvatarBubble key={user.id} label={user.avatar} color={user.color} imageUrl={user.avatarUrl} small />)}
               <div>
                 <p className="m-0 text-[15px] font-black text-[#725d42]">{couple.spaceName}</p>
                 <p className="m-0 mt-1 text-[12px] text-[#9f927d]">邀请码 {couple.inviteCode}</p>
@@ -2033,13 +2393,13 @@ function PhotoPicker({
   )
 }
 
-function AvatarBubble({ label, color, small }: { label: string; color: string; small?: boolean }) {
+function AvatarBubble({ label, color, imageUrl, small }: { label: string; color: string; imageUrl?: string; small?: boolean }) {
   return (
     <div
-      className={`flex items-center justify-center rounded-full border-2 border-white font-black text-white shadow-md ${small ? 'h-10 w-10 text-[15px]' : 'h-14 w-14 text-[20px]'}`}
+      className={`avatar-bubble flex items-center justify-center rounded-full border-2 border-white font-black text-white shadow-md ${small ? 'h-10 w-10 text-[15px]' : 'h-14 w-14 text-[20px]'}`}
       style={{ background: color }}
     >
-      {label}
+      {imageUrl ? <img src={imageUrl} alt={label} /> : label}
     </div>
   )
 }

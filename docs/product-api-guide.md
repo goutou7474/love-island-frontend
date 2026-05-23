@@ -65,7 +65,7 @@ POST /api/spaces/current/invite-code
 首屏建议保留聚合接口，降低请求数量：
 
 ```http
-GET /api/app/snapshot
+GET /app/snapshot
 ```
 
 返回：
@@ -73,8 +73,10 @@ GET /api/app/snapshot
 ```ts
 interface LoveAppSnapshot {
   couple: CoupleProfile
+  members: PublicUser[]
   weather: WeatherInfo[]
   checklistCategories: ChecklistCategory[]
+  customChecklistItems: ChecklistItem[]
   memories: Memory[]
   anniversaries: Anniversary[]
   wishes: Wish[]
@@ -84,33 +86,42 @@ interface LoveAppSnapshot {
 }
 ```
 
+天气当前由前端按成员城市调用 Open-Meteo：先用 Geocoding API 把城市转经纬度，再用 Forecast API 读取 `current=temperature_2m,weather_code`。自有后端上线后也可以把这层挪到服务端缓存。
+
+### Profile
+
+```http
+PATCH /profile
+```
+
+用于保存空间名、在一起日期、两个人昵称、城市和头像 URL。头像先走 `POST /media`，再把返回的 `asset.url` 写入对应成员。
+
 ### Checklist
 
 ```http
-GET  /api/checklist/categories
-POST /api/checklist/items
-POST /api/checklist/items/:itemId/checkins
-PATCH /api/checklist/items/:itemId
-DELETE /api/checklist/items/:itemId
+GET    /checkins/items
+POST   /checkins/items
+DELETE /checkins/items/:itemId
+GET    /checkins/completions
+PUT    /checkins/completions/:itemId
+DELETE /checkins/completions/:itemId
 ```
 
 ### Memories
 
 ```http
-GET  /api/memories?mood=&cursor=
-POST /api/memories
-GET  /api/memories/:memoryId
-PATCH /api/memories/:memoryId
-DELETE /api/memories/:memoryId
+GET    /memories
+POST   /memories
+PATCH  /memories/:memoryId
+DELETE /memories/:memoryId
 ```
 
 ### Anniversaries
 
 ```http
-GET  /api/anniversaries
-POST /api/anniversaries
-PATCH /api/anniversaries/:anniversaryId
-DELETE /api/anniversaries/:anniversaryId
+GET    /anniversaries
+POST   /anniversaries
+DELETE /anniversaries/:anniversaryId
 ```
 
 内置重点日：
@@ -125,20 +136,21 @@ DELETE /api/anniversaries/:anniversaryId
 ### Wishes
 
 ```http
-GET  /api/wishes?category=&status=
-POST /api/wishes
-POST /api/wishes/:wishId/complete
-PATCH /api/wishes/:wishId
-DELETE /api/wishes/:wishId
+GET    /wishes
+POST   /wishes
+PATCH  /wishes/:wishId/complete
+DELETE /wishes/:wishId
 ```
+
+完成心愿时可同时提交 `completionNote` 和 `completionPhotos`，前端会把它展示到“已实现心愿”区域。
 
 ### Secret Messages
 
 ```http
-GET  /api/secrets
-POST /api/secrets
-POST /api/secrets/:secretId/open
-DELETE /api/secrets/:secretId
+GET    /secrets
+POST   /secrets
+POST   /secrets/:secretId/open
+DELETE /secrets/:secretId
 ```
 
 后端根据 `openMode`、`openAt` 和纪念日规则判断是否可打开。前端不应只靠本地判断保密。
@@ -146,8 +158,8 @@ DELETE /api/secrets/:secretId
 ### Uploads
 
 ```http
-POST /api/media
-GET  /api/media/:assetId/file?token=
+POST /media
+GET  /media/:assetId/file?token=
 ```
 
 MVP 已采用后端直传。后续迁移到 OSS/COS/R2 时，可以保留 `POST /media` 作为产品接口，内部再替换为预签名上传或对象存储直传。

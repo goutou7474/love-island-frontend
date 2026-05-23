@@ -7,6 +7,7 @@ export interface UserProfile {
   name: string
   city: string
   avatar: string
+  avatarUrl?: string
   color: string
 }
 
@@ -34,6 +35,7 @@ export interface ChecklistItem {
   completedBy?: string
   location?: string
   note?: string
+  isCustom?: boolean
 }
 
 export interface ChecklistCategory {
@@ -79,6 +81,8 @@ export interface Wish {
   addedBy: string
   note: string
   completedAt?: string
+  completionNote?: string
+  completionPhotos?: string[]
 }
 
 export type SecretOpenMode = 'now' | 'date' | 'anniversary'

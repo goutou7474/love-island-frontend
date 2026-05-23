@@ -2,12 +2,15 @@ export interface BackendUser {
   id: string
   email: string
   displayName: string
+  city: string
+  avatarUrl: string
   createdAt: string
 }
 
 export interface BackendCouple {
   id: string
   name: string
+  startDate: string
   ownerUserId: string
   memberCount: number
   createdAt: string
@@ -75,6 +78,22 @@ export interface CheckinCompletionListResponse {
   completions: BackendCheckinCompletion[]
 }
 
+export interface BackendCustomChecklistItem {
+  id: string
+  coupleId: string
+  categoryId: string
+  title: string
+  description: string
+  createdByUserId: string
+  archivedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomChecklistItemListResponse {
+  items: BackendCustomChecklistItem[]
+}
+
 export type UpsertCheckinCompletionPayload = Pick<
   BackendCheckinCompletion,
   'categoryId' | 'title' | 'completedAt'
@@ -119,6 +138,8 @@ export type CreateMemoryPayload = Pick<
   'title' | 'date' | 'location' | 'mood' | 'note' | 'photos'
 >
 
+export type UpdateMemoryPayload = CreateMemoryPayload
+
 export type BackendWishCategory = 'place' | 'food' | 'activity' | 'gift' | 'learn'
 export type BackendWishPriority = 1 | 2 | 3
 
@@ -132,6 +153,8 @@ export interface BackendWish {
   addedByUserId: string
   completedAt: string | null
   completedByUserId: string | null
+  completionNote: string
+  completionPhotos: string[]
   createdAt: string
   updatedAt: string
 }
@@ -187,8 +210,10 @@ export interface SettingsResponse {
 export interface BackendAppSnapshot {
   user: BackendUser
   couple: BackendCouple
+  members: BackendUser[]
   anniversaries: BackendAnniversary[]
   checkinCompletions: BackendCheckinCompletion[]
+  customChecklistItems: BackendCustomChecklistItem[]
   memories: BackendMemory[]
   wishes: BackendWish[]
   secrets: BackendSecretMessage[]
@@ -199,6 +224,25 @@ export type UpdateSettingsPayload = Partial<Pick<
   BackendAppSettings,
   'anniversaryReminder' | 'dailyMessagePush' | 'partnerActivityNotify' | 'appLock' | 'softTheme'
 >>
+
+export interface UpdateProfilePayload {
+  couple?: {
+    name?: string
+    startDate?: string
+  }
+  members?: Array<{
+    role: 'owner' | 'partner'
+    displayName?: string
+    city?: string
+    avatarUrl?: string
+  }>
+}
+
+export interface ProfileResponse {
+  user: BackendUser
+  couple: BackendCouple
+  members: BackendUser[]
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
@@ -305,6 +349,30 @@ export const backendApi = {
       },
     })
   },
+  listCustomChecklistItems(token: string) {
+    return requestJson<CustomChecklistItemListResponse>('/checkins/items', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  createCustomChecklistItem(token: string, payload: { categoryId: string; title: string; description?: string }) {
+    return requestJson<{ item: BackendCustomChecklistItem }>('/checkins/items', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteCustomChecklistItem(token: string, itemId: string) {
+    return requestJson<null>(`/checkins/items/${itemId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
   listMemories(token: string) {
     return requestJson<MemoryListResponse>('/memories', {
       headers: {
@@ -315,6 +383,15 @@ export const backendApi = {
   createMemory(token: string, payload: CreateMemoryPayload) {
     return requestJson<{ memory: BackendMemory }>('/memories', {
       method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  updateMemory(token: string, memoryId: string, payload: UpdateMemoryPayload) {
+    return requestJson<{ memory: BackendMemory }>(`/memories/${memoryId}`, {
+      method: 'PATCH',
       headers: {
         authorization: `Bearer ${token}`,
       },
@@ -360,7 +437,7 @@ export const backendApi = {
       body: JSON.stringify(payload),
     })
   },
-  completeWish(token: string, wishId: string, payload: { completedAt: string }) {
+  completeWish(token: string, wishId: string, payload: { completedAt: string; completionNote?: string; completionPhotos?: string[] }) {
     return requestJson<{ wish: BackendWish }>(`/wishes/${wishId}/complete`, {
       method: 'PATCH',
       headers: {
@@ -418,6 +495,15 @@ export const backendApi = {
   },
   updateSettings(token: string, payload: UpdateSettingsPayload) {
     return requestJson<SettingsResponse>('/settings', {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  updateProfile(token: string, payload: UpdateProfilePayload) {
+    return requestJson<ProfileResponse>('/profile', {
       method: 'PATCH',
       headers: {
         authorization: `Bearer ${token}`,
