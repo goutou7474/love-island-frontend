@@ -86,7 +86,13 @@ interface LoveAppSnapshot {
 }
 ```
 
-天气当前由前端按成员城市调用 Open-Meteo：先用 Geocoding API 把城市转经纬度，再用 Forecast API 读取 `current=temperature_2m,weather_code`。自有后端上线后也可以把这层挪到服务端缓存。
+天气优先走自有后端缓存接口：
+
+```http
+GET /weather?city=合肥&city=南昌
+```
+
+后端按城市调用 Open-Meteo 的 Geocoding API 和 Forecast API，并以城市为 key 做短缓存。前端保留原有 Open-Meteo 直连作为本地预览降级，后端可用时不会暴露第三方天气调用细节。
 
 `stats` 由后端按当前情侣空间实时聚合：在一起天数、完成打卡数、拾光数量、已实现心愿数、近 42 天活跃热力图和两位成员参与占比。前端统计页和年度报告入口直接消费该字段，页面内新增、删除或编辑后再刷新快照即可保持一致。
 

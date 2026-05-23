@@ -216,6 +216,18 @@ export interface BackendAppStats {
   participation: Array<{ userId: string; name: string; percent: number; color: string }>
 }
 
+export interface BackendWeatherInfo {
+  city: string
+  temp: number
+  condition: string
+  accent: string
+  updatedAt: string
+}
+
+export interface WeatherResponse {
+  weather: BackendWeatherInfo[]
+}
+
 export interface BackendAppSnapshot {
   user: BackendUser
   couple: BackendCouple
@@ -306,6 +318,16 @@ export const backendApi = {
   },
   getSnapshot(token: string) {
     return requestJson<BackendAppSnapshot>('/app/snapshot', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  getWeather(token: string, cities: string[]) {
+    const params = new URLSearchParams()
+    cities.forEach((city) => params.append('city', city))
+
+    return requestJson<WeatherResponse>(`/weather?${params.toString()}`, {
       headers: {
         authorization: `Bearer ${token}`,
       },

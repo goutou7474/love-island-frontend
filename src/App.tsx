@@ -520,6 +520,7 @@ export default function App() {
     setSettings(backendState.settings)
   }
   const weatherCityKey = snapshot?.couple.users.map((user) => user.city).filter(Boolean).join('|') ?? ''
+  const weatherUserKey = currentUser?.id ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -584,19 +585,31 @@ export default function App() {
     if (cities.length === 0) return
 
     let cancelled = false
-    fetchWeatherForCities(cities)
-      .then((weather) => {
+
+    async function loadWeather() {
+      const token = window.localStorage.getItem(authTokenKey)
+
+      try {
+        const weather = token ? (await backendApi.getWeather(token, cities)).weather : await fetchWeatherForCities(cities)
         if (cancelled || weather.length === 0) return
         setSnapshot((current) => current ? { ...current, weather } : current)
-      })
-      .catch(() => {
-        // 保留本地天气占位，不打断主流程。
-      })
+      } catch {
+        try {
+          const fallbackWeather = await fetchWeatherForCities(cities)
+          if (cancelled || fallbackWeather.length === 0) return
+          setSnapshot((current) => current ? { ...current, weather: fallbackWeather } : current)
+        } catch {
+          // 保留本地天气占位，不打断主流程。
+        }
+      }
+    }
+
+    void loadWeather()
 
     return () => {
       cancelled = true
     }
-  }, [weatherCityKey])
+  }, [weatherCityKey, weatherUserKey])
 
   useEffect(() => {
     if (!toast) return
