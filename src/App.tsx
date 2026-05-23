@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, resolveBackendAssetUrl, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendCouple, type BackendCustomChecklistItem, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
+import { backendApi, resolveBackendAssetUrl, type BackendAnnualReport, type BackendAnnualReportHighlightKind, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendCouple, type BackendCustomChecklistItem, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import { fetchWeatherForCities } from '@/services/weatherApi'
 import type {
@@ -93,6 +93,12 @@ const wishCategoryLabels: Record<WishCategory, string> = {
 }
 
 const today = getBeijingDateString()
+const reportKindText: Record<BackendAnnualReportHighlightKind, string> = {
+  checkin: '打卡',
+  memory: '拾光',
+  secret: '悄悄话',
+  wish: '心愿',
+}
 const mobileModalWidth = 'min(360px, calc(100vw - 32px))'
 const authTokenKey = 'love-island-auth-token'
 const hiddenChecklistItemsKey = 'love-island-hidden-checklist-items'
@@ -447,6 +453,8 @@ export default function App() {
   const [wishes, setWishes] = useState<Wish[]>([])
   const [secrets, setSecrets] = useState<SecretMessage[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [annualReport, setAnnualReport] = useState<BackendAnnualReport | null>(null)
+  const [annualReportLoading, setAnnualReportLoading] = useState(false)
 
   const [checklistForm, setChecklistForm] = useState({ categoryId: 'first', title: '' })
   const [checkinForm, setCheckinForm] = useState({ date: today, location: '', note: '' })
@@ -521,6 +529,7 @@ export default function App() {
   }
   const weatherCityKey = snapshot?.couple.users.map((user) => user.city).filter(Boolean).join('|') ?? ''
   const weatherUserKey = currentUser?.id ?? ''
+  const currentYear = Number(todayString.slice(0, 4))
 
   useEffect(() => {
     let cancelled = false
@@ -700,9 +709,31 @@ export default function App() {
   const handleLogout = () => {
     window.localStorage.removeItem(authTokenKey)
     setCurrentUser(null)
+    setAnnualReport(null)
     setView('login')
     setActiveTab('home')
     showToast('info', '已经退出小岛')
+  }
+
+  const openAnnualReport = async () => {
+    setDialog('annualReport')
+    setAnnualReportLoading(true)
+
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      setAnnualReport(null)
+      setAnnualReportLoading(false)
+      return
+    }
+
+    try {
+      const result = await backendApi.getAnnualReport(token, currentYear)
+      setAnnualReport(result.report)
+    } catch (error) {
+      showToast('error', error instanceof Error ? error.message : '年度报告生成失败')
+    } finally {
+      setAnnualReportLoading(false)
+    }
   }
 
   const submitJoin = (event: FormEvent) => {
@@ -1146,7 +1177,7 @@ export default function App() {
     }
     if (view === 'invite') return <InvitePage inviteCode={couple.inviteCode} onBack={() => setView('settings')} />
     if (view === 'secrets') return <SecretsPage secrets={secrets} onBack={() => setView('home')} onWrite={() => setDialog('writeSecret')} onOpen={openSecret} />
-    if (view === 'stats') return <StatsPage stats={liveStats} onBack={() => setView('home')} onReport={() => setDialog('annualReport')} />
+    if (view === 'stats') return <StatsPage stats={liveStats} onBack={() => setView('home')} onReport={() => void openAnnualReport()} />
     if (view === 'settings') {
       return (
         <SettingsPage
@@ -1247,6 +1278,16 @@ export default function App() {
       />
     )
   }
+
+  const reportTotals = annualReport?.totals ?? {
+    checklistDone: liveStats.checklistDone,
+    memoriesCount: liveStats.memoriesCount,
+    secretsSent: secrets.length,
+    wishesDone: liveStats.wishesDone,
+  }
+  const reportSummary = annualReport?.summary ?? `今年你们完成了 ${liveStats.checklistDone} 个打卡，留下 ${liveStats.memoriesCount} 条回忆，实现 ${liveStats.wishesDone} 个心愿。`
+  const reportYear = annualReport?.year ?? currentYear
+  const reportFavoriteMonth = annualReport?.favoriteMonth
 
   const mainNavVisible = view !== 'login'
 
@@ -1482,11 +1523,47 @@ export default function App() {
       </Modal>
 
       <Modal open={dialog === 'annualReport'} title="年度爱情报告" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
-        <div className="form-stack">
-          <div className="soft-card p-4">
-            <p className="m-0 text-[13px] leading-7 text-[#725d42]">今年你们完成了 {liveStats.checklistDone} 个打卡，留下 {liveStats.memoriesCount} 条回忆，实现 {liveStats.wishesDone} 个心愿。小岛已经把这些亮闪闪的时刻收进报告里啦。</p>
+        <div className="annual-report-sheet">
+          <div className="annual-report-hero">
+            <div>
+              <span className="leaf-chip is-active">{reportYear} 年</span>
+              <h3>{annualReport?.title ?? '小岛年度报告'}</h3>
+              <p>{annualReportLoading ? '小岛正在整理今年的亮闪闪时刻。' : reportSummary}</p>
+            </div>
+            <Icon name="icon-miles" size={48} bounce />
           </div>
-          <Button type="primary" block onClick={() => setDialog(null)}>收好这份报告</Button>
+
+          <div className="annual-report-metrics">
+            <div><strong>{reportTotals.checklistDone}</strong><span>打卡</span></div>
+            <div><strong>{reportTotals.memoriesCount}</strong><span>拾光</span></div>
+            <div><strong>{reportTotals.wishesDone}</strong><span>心愿</span></div>
+            <div><strong>{reportTotals.secretsSent}</strong><span>纸条</span></div>
+          </div>
+
+          {reportFavoriteMonth && reportFavoriteMonth.count > 0 ? (
+            <div className="annual-report-note">
+              <span className="leaf-chip">最热月份</span>
+              <p>{reportFavoriteMonth.month} 月一共亮起 {reportFavoriteMonth.count} 次小灯。</p>
+            </div>
+          ) : null}
+
+          <div className="annual-report-highlights">
+            <p className="m-0 text-[13px] font-black text-[#725d42]">年度高光</p>
+            {annualReportLoading ? <IslandStateBlock title="正在生成报告" message="等一下，小岛在翻相册和打卡记录。" /> : null}
+            {!annualReportLoading && annualReport?.highlights.length === 0 ? <IslandStateBlock title="今年还没有记录" message="完成一次打卡、拾光或心愿后，报告就会亮起来。" /> : null}
+            {!annualReportLoading && annualReport?.highlights.map((item) => (
+              <div className="annual-report-highlight" key={`${item.kind}-${item.date}-${item.title}`}>
+                <span>{reportKindText[item.kind]}</span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <small>{item.date}</small>
+                  {item.note ? <p>{item.note}</p> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <Button type="primary" block loading={annualReportLoading} onClick={() => setDialog(null)}>收好这份报告</Button>
         </div>
       </Modal>
 

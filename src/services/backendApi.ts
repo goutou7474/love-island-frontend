@@ -228,6 +228,35 @@ export interface WeatherResponse {
   weather: BackendWeatherInfo[]
 }
 
+export type BackendAnnualReportHighlightKind = 'memory' | 'checkin' | 'wish' | 'secret'
+
+export interface BackendAnnualReport {
+  year: number
+  title: string
+  summary: string
+  totals: {
+    checklistDone: number
+    memoriesCount: number
+    wishesDone: number
+    secretsSent: number
+  }
+  favoriteMonth: {
+    month: number
+    count: number
+  }
+  months: Array<{ month: number; count: number }>
+  highlights: Array<{
+    kind: BackendAnnualReportHighlightKind
+    title: string
+    date: string
+    note: string
+  }>
+}
+
+export interface AnnualReportResponse {
+  report: BackendAnnualReport
+}
+
 export interface BackendAppSnapshot {
   user: BackendUser
   couple: BackendCouple
@@ -328,6 +357,13 @@ export const backendApi = {
     cities.forEach((city) => params.append('city', city))
 
     return requestJson<WeatherResponse>(`/weather?${params.toString()}`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  getAnnualReport(token: string, year: number) {
+    return requestJson<AnnualReportResponse>(`/reports/annual?year=${year}`, {
       headers: {
         authorization: `Bearer ${token}`,
       },
