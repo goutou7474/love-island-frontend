@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
+import { backendApi, resolveBackendAssetUrl, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -141,7 +141,7 @@ function mapBackendMemory(item: BackendMemory): Memory {
     location: item.location,
     mood: item.mood,
     note: item.note,
-    photos: item.photos,
+    photos: item.photos.map(resolveBackendAssetUrl),
   }
 }
 
@@ -260,6 +260,19 @@ function cancelChecklistCompletion(categories: ChecklistCategory[], itemId: stri
   }))
 }
 
+function isPhotoUrl(photo: string) {
+  return photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('data:')
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(new Error('图片预览读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
 function buildBackendSnapshotState(backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) {
   return {
     currentUser: backendSnapshot.user,
@@ -329,12 +342,31 @@ export default function App() {
   const [checklistForm, setChecklistForm] = useState({ categoryId: 'first', title: '' })
   const [checkinForm, setCheckinForm] = useState({ date: today, location: '', note: '' })
   const [memoryForm, setMemoryForm] = useState({ title: '', date: today, location: '', mood: 'sweet' as Memory['mood'], note: '' })
+  const [memoryPhotoFiles, setMemoryPhotoFiles] = useState<File[]>([])
+  const [memoryPhotoPreviews, setMemoryPhotoPreviews] = useState<string[]>([])
   const [anniversaryForm, setAnniversaryForm] = useState({ name: '', date: today, repeat: 'yearly' as Anniversary['repeat'], icon: '♡' })
   const [wishForm, setWishForm] = useState({ title: '', category: 'place' as WishCategory, priority: 2 as Wish['priority'], note: '' })
   const [secretForm, setSecretForm] = useState({ title: '', content: '', openMode: 'now' as SecretMessage['openMode'], openAt: '' })
   const [joinCode, setJoinCode] = useState('YY-0521')
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
+  const selectMemoryPhotos = async (files: FileList | null) => {
+    const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
+
+    if (selectedFiles.length === 0) {
+      setMemoryPhotoFiles([])
+      setMemoryPhotoPreviews([])
+      return
+    }
+
+    if (selectedFiles.length > 3) {
+      showToast('info', '这次先选 3 张照片，刚好放进小相册')
+    }
+
+    const nextFiles = selectedFiles.slice(0, 3)
+    setMemoryPhotoFiles(nextFiles)
+    setMemoryPhotoPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
+  }
   const applyBackendSnapshot = (backendSnapshot: BackendAppSnapshot, visibleChecklistCategories: ChecklistCategory[]) => {
     const backendState = buildBackendSnapshotState(backendSnapshot, visibleChecklistCategories)
 
@@ -580,12 +612,20 @@ export default function App() {
         throw new Error('请先登录后再保存拾光')
       }
 
+      const uploadedPhotos = await Promise.all(
+        memoryPhotoFiles.map(async (file) => {
+          const result = await backendApi.uploadMedia(token, file)
+          return result.asset.url
+        }),
+      )
       const result = await backendApi.createMemory(token, {
         ...memoryForm,
-        photos: [],
+        photos: uploadedPhotos,
       })
       setMemories((current) => [mapBackendMemory(result.memory), ...current])
       setMemoryForm({ title: '', date: today, location: '', mood: 'sweet', note: '' })
+      setMemoryPhotoFiles([])
+      setMemoryPhotoPreviews([])
     }, '回忆已经存进拾光册')
   }
 
@@ -940,7 +980,13 @@ export default function App() {
             </Field>
           </div>
           <Field label="地点"><input className="plain-input" value={memoryForm.location} onChange={(event) => setMemoryForm({ ...memoryForm, location: event.target.value })} /></Field>
-          <PhotoPlaceholder compact />
+          <PhotoPicker
+            files={memoryPhotoFiles}
+            previews={memoryPhotoPreviews}
+            onChange={(files) => {
+              void selectMemoryPhotos(files)
+            }}
+          />
           <Field label="正文"><textarea className="plain-textarea" value={memoryForm.note} onChange={(event) => setMemoryForm({ ...memoryForm, note: event.target.value })} /></Field>
           <Button type="primary" htmlType="submit" block loading={saving}>存进拾光册</Button>
         </form>
@@ -951,7 +997,15 @@ export default function App() {
           <div className="form-stack">
             <p className="m-0 text-[13px] font-black text-[#9f927d]">{selectedMemory.date} · {selectedMemory.location}</p>
             <div className="rounded-[24px] bg-[#f7f3df] p-4 text-[14px] leading-7 text-[#725d42]">{selectedMemory.note}</div>
-            <PhotoPlaceholder compact />
+            {selectedMemory.photos.some(isPhotoUrl) ? (
+              <div className="memory-detail-photo-grid">
+                {selectedMemory.photos.filter(isPhotoUrl).slice(0, 6).map((photo) => (
+                  <img src={photo} alt={selectedMemory.title} key={photo} />
+                ))}
+              </div>
+            ) : (
+              <PhotoPlaceholder compact />
+            )}
             <div className="grid-2">
               <Button onClick={() => showToast('info', '编辑表单已预留，后续接后端时复用添加表单')}>编辑</Button>
               <Button danger onClick={() => setConfirmDelete({ kind: 'memory', id: selectedMemory.id })}>删除</Button>
@@ -1465,7 +1519,11 @@ function MemoryList({ memories, onOpen }: { memories: Memory[]; onOpen: (memory:
             <div className={`memory-photo-carousel mood-${memory.mood}`}>
               {(memory.photos.length ? memory.photos : ['placeholder']).slice(0, 3).map((photo, photoIndex) => (
                 <span className={`memory-slide slide-${photoIndex}`} key={photo}>
-                  <Icon name={memory.mood === 'travel' ? 'icon-helicopter' : memory.mood === 'daily' ? 'icon-chat' : 'icon-camera'} size={28} />
+                  {isPhotoUrl(photo) ? (
+                    <img src={photo} alt={memory.title} className="memory-slide-image" />
+                  ) : (
+                    <Icon name={memory.mood === 'travel' ? 'icon-helicopter' : memory.mood === 'daily' ? 'icon-chat' : 'icon-camera'} size={28} />
+                  )}
                 </span>
               ))}
               <div className="memory-photo-label">
@@ -1928,6 +1986,41 @@ function PhotoPlaceholder({ compact, label = '添加照片' }: { compact?: boole
       <Camera size={20} />
       <span className="text-[13px] font-black">{label}</span>
     </button>
+  )
+}
+
+function PhotoPicker({
+  files,
+  previews,
+  onChange,
+}: {
+  files: File[]
+  previews: string[]
+  onChange: (files: FileList | null) => void
+}) {
+  return (
+    <div className="photo-picker">
+      <label className="photo-upload photo-upload-compact">
+        <ImagePlus size={18} />
+        <span className="text-[13px] font-black">{files.length > 0 ? `已选择 ${files.length} 张照片` : '添加照片'}</span>
+        <input
+          accept="image/*"
+          hidden
+          multiple
+          type="file"
+          onChange={(event) => onChange(event.target.files)}
+        />
+      </label>
+      {previews.length > 0 ? (
+        <div className="photo-preview-grid">
+          {previews.map((preview, index) => (
+            <div className="photo-preview-item" key={`${preview}-${index}`}>
+              <img src={preview} alt={`待上传照片 ${index + 1}`} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

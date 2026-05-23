@@ -99,6 +99,17 @@ export interface BackendMemory {
   updatedAt: string
 }
 
+export interface BackendMediaAsset {
+  id: string
+  coupleId: string
+  ownerUserId: string
+  filename: string
+  contentType: string
+  byteSize: number
+  url: string
+  createdAt: string
+}
+
 export interface MemoryListResponse {
   memories: BackendMemory[]
 }
@@ -190,6 +201,14 @@ export type UpdateSettingsPayload = Partial<Pick<
 >>
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
+
+export function resolveBackendAssetUrl(value: string) {
+  if (value.startsWith('/media/')) {
+    return `${API_BASE_URL}${value}`
+  }
+
+  return value
+}
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
@@ -294,6 +313,21 @@ export const backendApi = {
       body: JSON.stringify(payload),
     })
   },
+  async uploadMedia(token: string, file: File) {
+    const dataBase64 = await readFileAsBase64(file)
+
+    return requestJson<{ asset: BackendMediaAsset }>('/media', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        filename: file.name || 'photo.jpg',
+        contentType: file.type || 'image/jpeg',
+        dataBase64,
+      }),
+    })
+  },
   deleteMemory(token: string, memoryId: string) {
     return requestJson<null>(`/memories/${memoryId}`, {
       method: 'DELETE',
@@ -383,4 +417,16 @@ export const backendApi = {
       body: JSON.stringify(payload),
     })
   },
+}
+
+function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result ?? '')
+      resolve(result.includes(',') ? result.split(',')[1] : result)
+    }
+    reader.onerror = () => reject(new Error('图片读取失败，请重新选择'))
+    reader.readAsDataURL(file)
+  })
 }
