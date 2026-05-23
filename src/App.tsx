@@ -1682,7 +1682,7 @@ function LoginPage({
   onLogin: (email: string, password: string) => Promise<void>
 }) {
   const [email, setEmail] = useState('owner@example.com')
-  const [password, setPassword] = useState('owner-password-123')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
   const submitLogin = async (event: FormEvent) => {
@@ -1696,9 +1696,9 @@ function LoginPage({
     }
   }
 
-  const fillAccount = (nextEmail: string, nextPassword: string) => {
+  const fillAccount = (nextEmail: string) => {
     setEmail(nextEmail)
-    setPassword(nextPassword)
+    setPassword('')
     setError('')
   }
 
@@ -1753,11 +1753,11 @@ function LoginPage({
 
       <div className="section mt-3">
         <div className="login-account-switch">
-          <button type="button" onClick={() => fillAccount('owner@example.com', 'owner-password-123')}>
+          <button type="button" onClick={() => fillAccount('owner@example.com')}>
             <span>言言账号</span>
             <small>owner@example.com</small>
           </button>
-          <button type="button" onClick={() => fillAccount('partner@example.com', 'partner-password-123')}>
+          <button type="button" onClick={() => fillAccount('partner@example.com')}>
             <span>羊羊账号</span>
             <small>partner@example.com</small>
           </button>
