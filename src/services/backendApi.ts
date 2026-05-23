@@ -131,6 +131,32 @@ export interface WishListResponse {
 
 export type CreateWishPayload = Pick<BackendWish, 'title' | 'category' | 'priority' | 'note'>
 
+export type BackendSecretOpenMode = 'now' | 'date' | 'anniversary'
+
+export interface BackendSecretMessage {
+  id: string
+  coupleId: string
+  fromUserId: string
+  toUserId: string
+  title: string
+  content: string
+  openMode: BackendSecretOpenMode
+  openAt: string | null
+  openedAt: string | null
+  createdAt: string
+  updatedAt: string
+  fromDisplayName: string
+  canOpen: boolean
+}
+
+export interface SecretListResponse {
+  secrets: BackendSecretMessage[]
+}
+
+export type SendSecretPayload = Pick<BackendSecretMessage, 'title' | 'content' | 'openMode'> & {
+  openAt?: string | null
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -264,6 +290,38 @@ export const backendApi = {
   },
   deleteWish(token: string, wishId: string) {
     return requestJson<null>(`/wishes/${wishId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  listSecrets(token: string) {
+    return requestJson<SecretListResponse>('/secrets', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  sendSecret(token: string, payload: SendSecretPayload) {
+    return requestJson<{ secret: BackendSecretMessage }>('/secrets', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  openSecret(token: string, secretId: string) {
+    return requestJson<{ secret: BackendSecretMessage }>(`/secrets/${secretId}/open`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  deleteSecret(token: string, secretId: string) {
+    return requestJson<null>(`/secrets/${secretId}`, {
       method: 'DELETE',
       headers: {
         authorization: `Bearer ${token}`,

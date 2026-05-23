@@ -93,6 +93,7 @@ export interface SecretMessage {
   openMode: SecretOpenMode
   openAt?: string
   isOpened: boolean
+  canOpen?: boolean
 }
 
 export interface AppSettings {

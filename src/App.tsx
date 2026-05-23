@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory, type BackendWish } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -157,6 +157,30 @@ function mapBackendWish(item: BackendWish): Wish {
   }
 }
 
+function mapBackendSecret(item: BackendSecretMessage, currentUserId: string): SecretMessage {
+  return {
+    id: item.id,
+    direction: item.fromUserId === currentUserId ? 'sent' : 'received',
+    title: item.title,
+    content: item.content,
+    from: item.fromDisplayName,
+    createdAt: formatSecretCreatedAt(item.createdAt),
+    openMode: item.openMode,
+    openAt: item.openAt ?? undefined,
+    isOpened: Boolean(item.openedAt),
+    canOpen: item.canOpen,
+  }
+}
+
+function formatSecretCreatedAt(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
 function mergeBackendCheckinCompletions(
   categories: ChecklistCategory[],
   completions: BackendCheckinCompletion[],
@@ -258,6 +282,7 @@ export default function App() {
   const [view, setView] = useState<AppView>('login')
   const [authChecking, setAuthChecking] = useState(true)
   const [authSubmitting, setAuthSubmitting] = useState(false)
+  const [currentUser, setCurrentUser] = useState<BackendUser | null>(null)
   const [activeTab, setActiveTab] = useState<MainTab>('home')
   const [dialog, setDialog] = useState<Dialog>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
@@ -310,15 +335,17 @@ export default function App() {
 
       try {
         const session = await backendApi.me(token)
-        const [anniversaryResult, checkinResult, memoryResult, wishResult] = await Promise.all([
+        const [anniversaryResult, checkinResult, memoryResult, wishResult, secretResult] = await Promise.all([
           backendApi.listAnniversaries(token),
           backendApi.listCheckinCompletions(token),
           backendApi.listMemories(token),
           backendApi.listWishes(token),
+          backendApi.listSecrets(token),
         ])
 
         if (cancelled) return
 
+        setCurrentUser(session.user)
         setAnniversaries(anniversaryResult.anniversaries.map(mapBackendAnniversary))
         setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, checkinResult.completions))
         if (memoryResult.memories.length > 0) {
@@ -327,11 +354,15 @@ export default function App() {
         if (wishResult.wishes.length > 0) {
           setWishes(wishResult.wishes.map(mapBackendWish))
         }
+        if (secretResult.secrets.length > 0) {
+          setSecrets(secretResult.secrets.map((secret) => mapBackendSecret(secret, session.user.id)))
+        }
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
       } catch {
         window.localStorage.removeItem(authTokenKey)
+        setCurrentUser(null)
       } finally {
         if (!cancelled) {
           setAuthChecking(false)
@@ -403,6 +434,13 @@ export default function App() {
     }
   }
 
+  const loadBackendSecrets = async (token: string, currentUserId: string) => {
+    const result = await backendApi.listSecrets(token)
+    if (result.secrets.length > 0) {
+      setSecrets(result.secrets.map((secret) => mapBackendSecret(secret, currentUserId)))
+    }
+  }
+
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -427,11 +465,13 @@ export default function App() {
       const login = await backendApi.login(email, password)
       window.localStorage.setItem(authTokenKey, login.token)
       const session = await backendApi.me(login.token)
+      setCurrentUser(session.user)
       await Promise.all([
         loadBackendAnniversaries(login.token),
         loadBackendCheckins(login.token),
         loadBackendMemories(login.token),
         loadBackendWishes(login.token),
+        loadBackendSecrets(login.token, session.user.id),
       ])
       setView('home')
       setActiveTab('home')
@@ -446,6 +486,7 @@ export default function App() {
 
   const handleLogout = () => {
     window.localStorage.removeItem(authTokenKey)
+    setCurrentUser(null)
     setView('login')
     setActiveTab('home')
     showToast('info', '已经退出小岛')
@@ -609,18 +650,39 @@ export default function App() {
       showToast('error', '悄悄话不能为空')
       return
     }
+    if (secretForm.openMode === 'date' && !secretForm.openAt) {
+      showToast('error', '请选择打开日期')
+      return
+    }
     runSaving(async () => {
-      await mockLoveAppApi.sendSecret(secretForm)
-      setSecrets((current) => [{
-        id: makeId('s'),
-        direction: 'sent',
-        from: couple.users[0].name,
-        createdAt: '刚刚',
-        isOpened: secretForm.openMode === 'now',
-        ...secretForm,
-      }, ...current])
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token || !currentUser) {
+        throw new Error('请先登录后再寄出悄悄话')
+      }
+
+      const result = await backendApi.sendSecret(token, {
+        title: secretForm.title,
+        content: secretForm.content,
+        openMode: secretForm.openMode,
+        openAt: secretForm.openMode === 'date' ? secretForm.openAt : null,
+      })
+      setSecrets((current) => [mapBackendSecret(result.secret, currentUser.id), ...current])
       setSecretForm({ title: '', content: '', openMode: 'now', openAt: '' })
     }, '悄悄话已经寄出')
+  }
+
+  const openSecret = (message: SecretMessage) => {
+    runSaving(async () => {
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token || !currentUser) {
+        throw new Error('请先登录后再打开悄悄话')
+      }
+
+      const result = await backendApi.openSecret(token, message.id)
+      setSecrets((current) => current.map((secret) => (
+        secret.id === message.id ? mapBackendSecret(result.secret, currentUser.id) : secret
+      )))
+    }, '悄悄话已经打开')
   }
 
   const completeWish = () => {
@@ -696,7 +758,7 @@ export default function App() {
       return <LoginPage loading={authSubmitting} onLogin={handleLogin} />
     }
     if (view === 'invite') return <InvitePage inviteCode={couple.inviteCode} onBack={() => setView('settings')} />
-    if (view === 'secrets') return <SecretsPage secrets={secrets} onBack={() => setView('home')} onWrite={() => setDialog('writeSecret')} />
+    if (view === 'secrets') return <SecretsPage secrets={secrets} onBack={() => setView('home')} onWrite={() => setDialog('writeSecret')} onOpen={openSecret} />
     if (view === 'stats') return <StatsPage stats={stats} onBack={() => setView('home')} onReport={() => setDialog('annualReport')} />
     if (view === 'settings') {
       return (
@@ -1612,7 +1674,7 @@ function WishlistPage({ wishes, onAdd, onComplete, onDelete }: { wishes: Wish[];
   )
 }
 
-function SecretsPage({ secrets, onBack, onWrite }: { secrets: SecretMessage[]; onBack: () => void; onWrite: () => void }) {
+function SecretsPage({ secrets, onBack, onWrite, onOpen }: { secrets: SecretMessage[]; onBack: () => void; onWrite: () => void; onOpen: (message: SecretMessage) => void }) {
   const received = secrets.filter((item) => item.direction === 'received')
   const sent = secrets.filter((item) => item.direction === 'sent')
   const renderMessages = (items: SecretMessage[]) => (
@@ -1630,6 +1692,11 @@ function SecretsPage({ secrets, onBack, onWrite }: { secrets: SecretMessage[]; o
             <span className="leaf-chip">{message.openMode === 'now' ? '已送达' : '定时'}</span>
           </div>
           <p className="m-0 mt-3 text-[13px] leading-6 text-[#725d42]">{message.isOpened ? message.content : `将在 ${message.openAt ?? '下个纪念日'} 打开`}</p>
+          {!message.isOpened && message.direction === 'received' ? (
+            <Button className="mt-3" block disabled={!message.canOpen} onClick={() => onOpen(message)}>
+              打开信封
+            </Button>
+          ) : null}
         </div>
       ))}
     </div>
