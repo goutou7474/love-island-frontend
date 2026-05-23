@@ -248,7 +248,8 @@ AppSetting
 - [x] 服务端天气缓存：前端优先使用 `/weather`，后端缓存 Open-Meteo 结果。
 - [x] 年度报告生成：`/reports/annual` 聚合年度总数、月份活动和高光条目。
 - [x] Web Push 订阅基础设施：`/push/vapid-public-key`、订阅保存、删除和设置页入口。
-- [ ] Web Push 实际发送：VAPID 私钥、发送器、生日/纪念日/悄悄话调度任务。
+- [x] Web Push 测试发送：VAPID 私钥配置、发送器和 `/push/test`。
+- [ ] Web Push 实际提醒：生日/纪念日/悄悄话调度任务。
 
 ## MVP 完成状态
 

@@ -631,6 +631,15 @@ export const backendApi = {
       body: JSON.stringify({ endpoint }),
     })
   },
+  sendTestPush(token: string, payload: { title?: string; body?: string } = {}) {
+    return requestJson<{ attempted: number; sent: number; failed: number }>('/push/test', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
   updateProfile(token: string, payload: UpdateProfilePayload) {
     return requestJson<ProfileResponse>('/profile', {
       method: 'PATCH',

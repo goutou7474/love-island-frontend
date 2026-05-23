@@ -1079,6 +1079,33 @@ export default function App() {
       })
   }
 
+  const testPushForDevice = () => {
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      showToast('error', '请先登录后再发送测试提醒')
+      return
+    }
+
+    backendApi.sendTestPush(token, {
+      title: '小岛测试提醒',
+      body: '这台手机已经能收到提醒啦',
+    })
+      .then((result) => {
+        if (result.sent > 0) {
+          showToast('success', '测试提醒已经送出')
+          return
+        }
+        if (result.attempted === 0) {
+          showToast('info', '这台设备还没有开启小岛通知')
+          return
+        }
+        showToast('error', '测试提醒发送失败，请稍后再试')
+      })
+      .catch((error) => {
+        showToast('error', error instanceof Error ? error.message : '测试提醒发送失败')
+      })
+  }
+
   const applyProfileResponse = (result: { user: BackendUser; couple: BackendCouple; members: BackendUser[] }) => {
     setCurrentUser(result.user)
     setSnapshot((current) => current ? {
@@ -1256,6 +1283,7 @@ export default function App() {
           pushStatus={devicePushStatus}
           onEnablePush={enablePushForDevice}
           onDisablePush={disablePushForDevice}
+          onTestPush={testPushForDevice}
         />
       )
     }
@@ -2384,6 +2412,7 @@ function SettingsPage({
   pushStatus,
   onEnablePush,
   onDisablePush,
+  onTestPush,
 }: {
   settings: AppSettings
   couple: LoveAppSnapshot['couple']
@@ -2397,6 +2426,7 @@ function SettingsPage({
   pushStatus: DevicePushStatus
   onEnablePush: () => void
   onDisablePush: () => void
+  onTestPush: () => void
 }) {
   const pushStatusText = {
     idle: '可为当前手机单独开启',
@@ -2445,6 +2475,7 @@ function SettingsPage({
           <div className="settings-push-actions">
             <Button type="primary" disabled={pushStatus === 'working'} onClick={onEnablePush}>开启</Button>
             <Button disabled={pushStatus === 'working'} onClick={onDisablePush}>关闭</Button>
+            <Button disabled={pushStatus === 'working'} onClick={onTestPush}>测试</Button>
           </div>
         </div>
       </div>
