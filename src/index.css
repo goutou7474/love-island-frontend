@@ -715,7 +715,7 @@ select:focus-visible {
 }
 
 .memory-photo-carousel {
-  min-height: 136px;
+  min-height: 146px;
 }
 
 .memory-photo::before,
@@ -765,6 +765,22 @@ select:focus-visible {
   box-shadow: 0 9px 18px rgba(61, 52, 40, 0.14);
 }
 
+.memory-photo-carousel.has-real-photos .memory-slide {
+  width: 62%;
+  height: 94px;
+  border-color: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 252, 238, 0.26);
+}
+
+.memory-photo-carousel.photo-count-1 .memory-slide {
+  left: 18px;
+  right: 18px;
+  top: 18px;
+  width: auto;
+  height: 104px;
+  transform: rotate(-2deg);
+}
+
 .memory-slide-image {
   border-radius: 20px;
 }
@@ -789,18 +805,33 @@ select:focus-visible {
   opacity: 0.78;
 }
 
+.memory-photo-carousel.has-real-photos .slide-1 {
+  right: 18px;
+  top: 18px;
+  transform: rotate(5deg) scale(0.84);
+  opacity: 0.9;
+}
+
+.memory-photo-carousel.has-real-photos .slide-2 {
+  left: 94px;
+  top: 58px;
+  transform: rotate(2deg) scale(0.76);
+  opacity: 0.84;
+}
+
 .memory-photo-label {
   position: absolute;
-  right: 14px;
-  top: 12px;
+  right: 12px;
+  bottom: 12px;
   z-index: 4;
   display: flex;
   align-items: center;
   gap: 8px;
   border-radius: 999px;
   padding: 7px 9px;
-  background: rgba(114, 93, 66, 0.62);
+  background: rgba(114, 93, 66, 0.72);
   color: #fff;
+  backdrop-filter: blur(8px);
   box-shadow: 0 4px 10px rgba(61, 52, 40, 0.14);
 }
 
@@ -1277,14 +1308,21 @@ select:focus-visible {
   font-weight: 800;
 }
 
-.milestone-node.is-active {
+.milestone-node.is-active,
+.milestone-node.is-reached {
   border-color: rgba(25, 200, 185, 0.42);
   background: linear-gradient(180deg, #e6f9f6, rgba(255, 252, 238, 0.86));
 }
 
-.milestone-node.is-active span {
+.milestone-node.is-active span,
+.milestone-node.is-reached span {
   background: #19c8b9;
   color: #fff;
+}
+
+.milestone-node.is-reached strong::after {
+  content: ' ✓';
+  color: #0f8178;
 }
 
 .birthday-grid {

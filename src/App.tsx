@@ -308,6 +308,7 @@ function mergeBackendCheckinCompletions(
         completedBy: completion.completedByUserId,
         location: completion.location ?? undefined,
         note: completion.note ?? undefined,
+        photos: completion.photos.map(resolveBackendAssetUrl),
       }
     }),
   }))
@@ -383,7 +384,27 @@ function cancelChecklistCompletion(categories: ChecklistCategory[], itemId: stri
 }
 
 function isPhotoUrl(photo: string) {
-  return photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('data:')
+  return photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('data:') || photo.startsWith('/')
+}
+
+function toStoredPhotoUrl(photo: string) {
+  if (photo.startsWith('/api/media/')) {
+    return photo.replace('/api/media/', '/media/')
+  }
+
+  try {
+    const url = new URL(photo)
+    if (url.pathname.startsWith('/api/media/')) {
+      return `${url.pathname.replace('/api/media/', '/media/')}${url.search}`
+    }
+    if (url.pathname.startsWith('/media/')) {
+      return `${url.pathname}${url.search}`
+    }
+  } catch {
+    // Non-URL values are either data URLs or already-relative asset refs.
+  }
+
+  return photo
 }
 
 function readFileAsDataUrl(file: File) {
@@ -472,6 +493,8 @@ export default function App() {
 
   const [checklistForm, setChecklistForm] = useState({ categoryId: 'first', title: '' })
   const [checkinForm, setCheckinForm] = useState({ date: today, location: '', note: '' })
+  const [checkinPhotoFiles, setCheckinPhotoFiles] = useState<File[]>([])
+  const [checkinPhotoPreviews, setCheckinPhotoPreviews] = useState<string[]>([])
   const [memoryForm, setMemoryForm] = useState({ title: '', date: today, location: '', mood: 'sweet' as Memory['mood'], note: '' })
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
   const [memoryExistingPhotos, setMemoryExistingPhotos] = useState<string[]>([])
@@ -497,28 +520,36 @@ export default function App() {
   const [joinCode, setJoinCode] = useState('YY-0521')
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
-  const selectMemoryPhotos = async (files: FileList | null) => {
+  const selectPhotoSet = async (
+    files: FileList | null,
+    setFiles: (files: File[]) => void,
+    setPreviews: (previews: string[]) => void,
+    maxCount = 12,
+  ) => {
     const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
 
     if (selectedFiles.length === 0) {
-      setMemoryPhotoFiles([])
-      setMemoryPhotoPreviews([])
+      setFiles([])
+      setPreviews([])
       return
     }
 
-    if (selectedFiles.length > 3) {
-      showToast('info', '这次先选 3 张照片，刚好放进小相册')
+    if (selectedFiles.length > maxCount) {
+      showToast('info', `这次先选 ${maxCount} 张照片`)
     }
 
-    const nextFiles = selectedFiles.slice(0, 3)
-    setMemoryPhotoFiles(nextFiles)
-    setMemoryPhotoPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
+    const nextFiles = selectedFiles.slice(0, maxCount)
+    setFiles(nextFiles)
+    setPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
+  }
+  const selectCheckinPhotos = async (files: FileList | null) => {
+    await selectPhotoSet(files, setCheckinPhotoFiles, setCheckinPhotoPreviews)
+  }
+  const selectMemoryPhotos = async (files: FileList | null) => {
+    await selectPhotoSet(files, setMemoryPhotoFiles, setMemoryPhotoPreviews)
   }
   const selectWishPhotos = async (files: FileList | null) => {
-    const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
-    const nextFiles = selectedFiles.slice(0, 3)
-    setWishPhotoFiles(nextFiles)
-    setWishPhotoPreviews(await Promise.all(nextFiles.map(readFileAsDataUrl)))
+    await selectPhotoSet(files, setWishPhotoFiles, setWishPhotoPreviews)
   }
   const selectAvatarPhoto = async (files: FileList | null) => {
     const file = Array.from(files ?? []).find((item) => item.type.startsWith('image/')) ?? null
@@ -817,12 +848,20 @@ export default function App() {
         throw new Error('请先登录后再完成打卡')
       }
 
+      const uploadedPhotos = await Promise.all(
+        checkinPhotoFiles.map(async (file) => {
+          const result = await backendApi.uploadMedia(token, file)
+          return result.asset.url
+        }),
+      )
+      const photos = [...(selectedChecklistItem.photos ?? []).map(toStoredPhotoUrl), ...uploadedPhotos]
       const result = await backendApi.upsertCheckinCompletion(token, selectedChecklistItem.id, {
         categoryId: selectedChecklistItem.categoryId,
         title: selectedChecklistItem.title,
         completedAt: checkinForm.date,
         location: checkinForm.location.trim() || null,
         note: checkinForm.note.trim() || null,
+        photos,
       })
       setChecklistCategories((current) => current.map((category) => ({
         ...category,
@@ -833,9 +872,12 @@ export default function App() {
             completedBy: result.completion.completedByUserId,
             location: result.completion.location ?? undefined,
             note: result.completion.note ?? undefined,
+            photos: result.completion.photos.map(resolveBackendAssetUrl),
           }
           : item),
       })))
+      setCheckinPhotoFiles([])
+      setCheckinPhotoPreviews([])
     }, '打卡完成，今天又多了一点可爱')
   }
 
@@ -886,7 +928,7 @@ export default function App() {
           return result.asset.url
         }),
       )
-      const nextPhotos = [...memoryExistingPhotos, ...uploadedPhotos]
+      const nextPhotos = [...memoryExistingPhotos.map(toStoredPhotoUrl), ...uploadedPhotos]
       const result = editingMemoryId ? await backendApi.updateMemory(token, editingMemoryId, {
         ...memoryForm,
         photos: nextPhotos,
@@ -1314,6 +1356,8 @@ export default function App() {
           onCheckin={(item) => {
             setSelectedChecklistItem(item)
             setCheckinForm({ date: todayString, location: item.location ?? '', note: item.note ?? '' })
+            setCheckinPhotoFiles([])
+            setCheckinPhotoPreviews([])
             setDialog('checkin')
           }}
           onDelete={(item) => setConfirmDelete({ kind: 'checklistItem', id: item.id })}
@@ -1445,7 +1489,22 @@ export default function App() {
         <form className="form-stack" onSubmit={submitCheckin}>
           <Field label="完成日期"><input className="plain-input" type="date" value={checkinForm.date} onChange={(event) => setCheckinForm({ ...checkinForm, date: event.target.value })} /></Field>
           <Field label="地点"><input className="plain-input" value={checkinForm.location} onChange={(event) => setCheckinForm({ ...checkinForm, location: event.target.value })} placeholder="在哪里完成的" /></Field>
-          <PhotoPlaceholder compact />
+          {selectedChecklistItem?.photos?.length ? (
+            <div className="photo-preview-grid">
+              {selectedChecklistItem.photos.slice(0, 12).map((photo) => (
+                <div className="photo-preview-item" key={photo}>
+                  <img src={photo} alt="已保存的打卡照片" />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <PhotoPicker
+            files={checkinPhotoFiles}
+            previews={checkinPhotoPreviews}
+            onChange={(files) => {
+              void selectCheckinPhotos(files)
+            }}
+          />
           <Field label="备注"><textarea className="plain-textarea" value={checkinForm.note} onChange={(event) => setCheckinForm({ ...checkinForm, note: event.target.value })} placeholder="写一点今天的小细节" /></Field>
           <Button type="primary" htmlType="submit" block loading={saving}>保存打卡</Button>
         </form>
@@ -1469,7 +1528,7 @@ export default function App() {
           <Field label="地点"><input className="plain-input" value={memoryForm.location} onChange={(event) => setMemoryForm({ ...memoryForm, location: event.target.value })} /></Field>
           {memoryExistingPhotos.length > 0 ? (
             <div className="photo-preview-grid">
-              {memoryExistingPhotos.slice(0, 6).map((photo) => (
+              {memoryExistingPhotos.slice(0, 12).map((photo) => (
                 <div className="photo-preview-item" key={photo}>
                   <img src={photo} alt="已保存的拾光照片" />
                 </div>
@@ -1495,7 +1554,7 @@ export default function App() {
             <div className="rounded-[24px] bg-[#f7f3df] p-4 text-[14px] leading-7 text-[#725d42]">{selectedMemory.note}</div>
             {selectedMemory.photos.some(isPhotoUrl) ? (
               <div className="memory-detail-photo-grid">
-                {selectedMemory.photos.filter(isPhotoUrl).slice(0, 6).map((photo) => (
+                {selectedMemory.photos.filter(isPhotoUrl).slice(0, 12).map((photo) => (
                   <img src={photo} alt={selectedMemory.title} key={photo} />
                 ))}
               </div>
@@ -1963,6 +2022,9 @@ function ChecklistPage({
                       <div className="min-w-0">
                         <p className="m-0 text-[14px] font-black text-[#725d42]">{item.title}</p>
                         <p className="m-0 mt-1 text-[11px] leading-5 text-[#9f927d]">{item.description}</p>
+                        {item.photos?.length ? (
+                          <p className="m-0 mt-1 text-[11px] font-black text-[#0f8178]">已收录 {item.photos.length} 张照片</p>
+                        ) : null}
                       </div>
                     </div>
                     <ChevronRight className="shrink-0 text-[#c4b89e]" size={18} />
@@ -2040,39 +2102,51 @@ function MemoryList({ memories, onOpen }: { memories: Memory[]; onOpen: (memory:
 
   return (
     <div className="memory-timeline">
-      {memories.map((memory, index) => (
-        <div className="timeline-row" key={memory.id}>
-          <div className="timeline-rail">
-            <span className="timeline-dot">{index + 1}</span>
+      {memories.map((memory, index) => {
+        const photoUrls = memory.photos.filter(isPhotoUrl)
+        const displayPhotos = photoUrls.length ? photoUrls.slice(0, 3) : ['placeholder']
+        const albumLabel = memory.mood === 'travel'
+          ? '旅行相册'
+          : memory.mood === 'daily'
+            ? '日常相册'
+            : memory.mood === 'moving'
+              ? '感动瞬间'
+              : '甜蜜相册'
+
+        return (
+          <div className="timeline-row" key={memory.id}>
+            <div className="timeline-rail">
+              <span className="timeline-dot">{index + 1}</span>
+            </div>
+            <button className="memory-card tap-card w-full text-left" onClick={() => onOpen(memory)}>
+              <div className={`memory-photo-carousel mood-${memory.mood} ${photoUrls.length ? 'has-real-photos' : ''} photo-count-${Math.min(photoUrls.length, 3)}`}>
+                {displayPhotos.map((photo, photoIndex) => (
+                  <span className={`memory-slide slide-${photoIndex}`} key={`${photo}-${photoIndex}`}>
+                    {isPhotoUrl(photo) ? (
+                      <img src={photo} alt={memory.title} className="memory-slide-image" />
+                    ) : (
+                      <Icon name={memory.mood === 'travel' ? 'icon-helicopter' : memory.mood === 'daily' ? 'icon-chat' : 'icon-camera'} size={28} />
+                    )}
+                  </span>
+                ))}
+                <div className="memory-photo-label">
+                  <span>{albumLabel}</span>
+                  <i>{photoUrls.length || memory.photos.length || 0} 张</i>
+                </div>
+              </div>
+              <div className="memory-content">
+                <div className="split">
+                  <span className="leaf-chip is-active">{memory.date.slice(5).replace('-', '.')}</span>
+                  <span className="memory-location"><MapPinIcon />{memory.location}</span>
+                </div>
+                <p className="m-0 mt-3 text-[16px] font-black text-[#725d42]">{memory.title}</p>
+                <p className="m-0 mt-2 text-[13px] leading-6 text-[#725d42]">{memory.note}</p>
+                <Divider type="wave-yellow" className="mt-3" />
+              </div>
+            </button>
           </div>
-          <button className="memory-card tap-card w-full text-left" onClick={() => onOpen(memory)}>
-            <div className={`memory-photo-carousel mood-${memory.mood}`}>
-              {(memory.photos.length ? memory.photos : ['placeholder']).slice(0, 3).map((photo, photoIndex) => (
-                <span className={`memory-slide slide-${photoIndex}`} key={photo}>
-                  {isPhotoUrl(photo) ? (
-                    <img src={photo} alt={memory.title} className="memory-slide-image" />
-                  ) : (
-                    <Icon name={memory.mood === 'travel' ? 'icon-helicopter' : memory.mood === 'daily' ? 'icon-chat' : 'icon-camera'} size={28} />
-                  )}
-                </span>
-              ))}
-              <div className="memory-photo-label">
-                <span>{memory.mood === 'travel' ? '旅行相册' : memory.mood === 'daily' ? '日常相册' : memory.mood === 'moving' ? '感动瞬间' : '甜蜜相册'}</span>
-                <i>{Math.max(1, memory.photos.length)} 张</i>
-              </div>
-            </div>
-            <div className="memory-content">
-              <div className="split">
-                <span className="leaf-chip is-active">{memory.date.slice(5).replace('-', '.')}</span>
-                <span className="memory-location"><MapPinIcon />{memory.location}</span>
-              </div>
-              <p className="m-0 mt-3 text-[16px] font-black text-[#725d42]">{memory.title}</p>
-              <p className="m-0 mt-2 text-[13px] leading-6 text-[#725d42]">{memory.note}</p>
-              <Divider type="wave-yellow" className="mt-3" />
-            </div>
-          </button>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -2089,18 +2163,18 @@ function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { annive
   const todayMs = new Date(todayDate).getTime()
   const relationDays = Math.floor((todayMs - loveStart) / 86_400_000) + 1
   const loveCountdown = nextAnnualDays(loveDate, todayDate)
-  const milestones: Array<{ label: string; caption: string; active: boolean; icon: IconSvgElement }> = [
-    { label: '开始恋爱', caption: loveDate, active: relationDays >= 1, icon: InLoveIcon },
-    { label: '一周年', caption: '1 year', active: relationDays >= 365, icon: CalendarLove02Icon },
-    { label: '二周年', caption: '2 years', active: relationDays >= 730, icon: CalendarLove02Icon },
-    { label: '三周年', caption: '3 years', active: relationDays >= 1095, icon: CalendarLove02Icon },
-    { label: '五周年', caption: '5 years', active: relationDays >= 1825, icon: CalendarLove02Icon },
-    { label: '求婚', caption: 'future', active: false, icon: DiamondIcon },
-    { label: '订婚', caption: 'future', active: false, icon: DiamondIcon },
-    { label: '结婚', caption: 'future', active: false, icon: WeddingIcon },
-    { label: '10年', caption: '10 years', active: false, icon: CalendarLove02Icon },
-    { label: '20年', caption: '20 years', active: false, icon: CalendarLove02Icon },
-    { label: '30年', caption: '30 years', active: false, icon: CalendarLove02Icon },
+  const milestones: Array<{ label: string; caption: string; reached: boolean; icon: IconSvgElement }> = [
+    { label: '开始恋爱', caption: loveDate, reached: relationDays >= 1, icon: InLoveIcon },
+    { label: '一周年', caption: '1 year', reached: relationDays >= 365, icon: CalendarLove02Icon },
+    { label: '二周年', caption: '2 years', reached: relationDays >= 730, icon: CalendarLove02Icon },
+    { label: '三周年', caption: '3 years', reached: relationDays >= 1095, icon: CalendarLove02Icon },
+    { label: '五周年', caption: '5 years', reached: relationDays >= 1825, icon: CalendarLove02Icon },
+    { label: '求婚', caption: 'future', reached: false, icon: DiamondIcon },
+    { label: '订婚', caption: 'future', reached: false, icon: DiamondIcon },
+    { label: '结婚', caption: 'future', reached: false, icon: WeddingIcon },
+    { label: '10年', caption: '10 years', reached: relationDays >= 3650, icon: CalendarLove02Icon },
+    { label: '20年', caption: '20 years', reached: relationDays >= 7300, icon: CalendarLove02Icon },
+    { label: '30年', caption: '30 years', reached: relationDays >= 10_950, icon: CalendarLove02Icon },
   ]
 
   return (
@@ -2132,7 +2206,7 @@ function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { annive
           <div className="milestone-track-shell">
             <div className="milestone-track">
               {milestones.map((item) => (
-                <div className={`milestone-node ${item.active ? 'is-active' : ''}`} key={item.label}>
+                <div className={`milestone-node ${item.reached ? 'is-reached' : ''}`} key={item.label}>
                   <span><HugeiconsIcon icon={item.icon} size={18} strokeWidth={2} /></span>
                   <strong>{item.label}</strong>
                   <em>{item.caption}</em>
@@ -2149,7 +2223,7 @@ function AnniversaryPage({ anniversaries, todayDate, onAdd, onDelete }: { annive
               <HugeiconsIcon icon={item.owner === 'yangyang' ? BirthdayCakeIcon : CakeSliceIcon} size={34} strokeWidth={1.7} />
             </div>
             <div>
-              <span className="leaf-chip">{item.owner === 'yangyang' ? '她的生日' : '我的生日'}</span>
+              <span className="leaf-chip">{item.owner === 'yangyang' ? '羊羊生日' : item.owner === 'yanyan' ? '言言生日' : '生日'}</span>
               <h3>{item.name}</h3>
               <p>{item.sourceDateLabel ?? item.lunarDate ?? item.date}</p>
               <p>{item.nextOccurrenceDate ? `下次公历 ${item.nextOccurrenceDate}` : '每年提醒'} · 还有 {anniversaryDays(item, todayDate)} 天</p>

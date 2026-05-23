@@ -1,0 +1,17 @@
+{
+  "name": "言言羊羊的小岛",
+  "short_name": "小岛",
+  "description": "只属于两个人的恋爱记录小岛",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff8df",
+  "theme_color": "#fff8df",
+  "icons": [
+    {
+      "src": "/island-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

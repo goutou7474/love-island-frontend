@@ -73,6 +73,7 @@ export interface BackendCheckinCompletion {
   completedByUserId: string
   location: string | null
   note: string | null
+  photos: string[]
   createdAt: string
   updatedAt: string
 }
@@ -103,6 +104,7 @@ export type UpsertCheckinCompletionPayload = Pick<
 > & {
   location?: string | null
   note?: string | null
+  photos?: string[]
 }
 
 export type BackendMemoryMood = 'sweet' | 'travel' | 'daily' | 'first' | 'moving'

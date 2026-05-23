@@ -69,8 +69,8 @@ export const memories: Memory[] = [
 
 export const anniversaries: Anniversary[] = [
   { id: 'a1', name: '恋爱纪念日', date: '2026-05-28', repeat: 'yearly', icon: '♡', color: '#82d5bb', isMain: true, kind: 'love', owner: 'both' },
-  { id: 'a2', name: '羊羊生日', date: '2003-04-03', repeat: 'yearly', icon: '✿', color: '#f8a6b2', kind: 'birthday', lunarDate: '农历 2003.04.03', owner: 'yangyang' },
-  { id: 'a3', name: '言言生日', date: '2003-02-25', repeat: 'yearly', icon: '✦', color: '#889df0', kind: 'birthday', lunarDate: '农历 2003.02.25', owner: 'yanyan' },
+  { id: 'a2', name: '言言生日', date: '2003-03-02', repeat: 'yearly', icon: '✦', color: '#889df0', kind: 'birthday', lunarDate: '农历 2003.03.02', owner: 'yanyan' },
+  { id: 'a3', name: '羊羊生日', date: '2003-02-25', repeat: 'yearly', icon: '✿', color: '#f8a6b2', kind: 'birthday', lunarDate: '农历 2003.02.25', owner: 'yangyang' },
 ]
 
 export const wishes: Wish[] = [

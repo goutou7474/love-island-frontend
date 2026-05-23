@@ -6,10 +6,18 @@ export interface DevicePushResult {
 }
 
 export async function enableDevicePush(token: string): Promise<DevicePushResult> {
+  const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  if (!isSecure) {
+    return {
+      enabled: false,
+      message: 'iPhone 通知需要 HTTPS。绑定域名并开启 HTTPS 后，再把小岛添加到主屏幕即可开启。',
+    }
+  }
+
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return {
       enabled: false,
-      message: '当前浏览器还不支持本机通知',
+      message: 'iPhone 需要 iOS 16.4+，并从主屏幕打开小岛 App 后才能开启通知',
     }
   }
 
