@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendCheckinCompletion } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -130,6 +130,18 @@ function mapBackendAnniversary(item: BackendAnniversary): Anniversary {
     kind: item.kind === 'proposal' || item.kind === 'engagement' ? 'custom' : item.kind,
     lunarDate: item.lunarDate ?? undefined,
     owner: item.owner === 'partner' ? 'yangyang' : item.owner === 'owner' ? 'yanyan' : 'both',
+  }
+}
+
+function mapBackendMemory(item: BackendMemory): Memory {
+  return {
+    id: item.id,
+    title: item.title,
+    date: item.date,
+    location: item.location,
+    mood: item.mood,
+    note: item.note,
+    photos: item.photos,
   }
 }
 
@@ -286,15 +298,19 @@ export default function App() {
 
       try {
         const session = await backendApi.me(token)
-        const [anniversaryResult, checkinResult] = await Promise.all([
+        const [anniversaryResult, checkinResult, memoryResult] = await Promise.all([
           backendApi.listAnniversaries(token),
           backendApi.listCheckinCompletions(token),
+          backendApi.listMemories(token),
         ])
 
         if (cancelled) return
 
         setAnniversaries(anniversaryResult.anniversaries.map(mapBackendAnniversary))
         setChecklistCategories(mergeBackendCheckinCompletions(visibleChecklistCategories, checkinResult.completions))
+        if (memoryResult.memories.length > 0) {
+          setMemories(memoryResult.memories.map(mapBackendMemory))
+        }
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
@@ -357,6 +373,13 @@ export default function App() {
     setChecklistCategories((current) => mergeBackendCheckinCompletions(current, result.completions))
   }
 
+  const loadBackendMemories = async (token: string) => {
+    const result = await backendApi.listMemories(token)
+    if (result.memories.length > 0) {
+      setMemories(result.memories.map(mapBackendMemory))
+    }
+  }
+
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -384,6 +407,7 @@ export default function App() {
       await Promise.all([
         loadBackendAnniversaries(login.token),
         loadBackendCheckins(login.token),
+        loadBackendMemories(login.token),
       ])
       setView('home')
       setActiveTab('home')
@@ -497,8 +521,16 @@ export default function App() {
       return
     }
     runSaving(async () => {
-      await mockLoveAppApi.saveMemory(memoryForm)
-      setMemories((current) => [{ id: makeId('m'), photos: [], ...memoryForm }, ...current])
+      const token = window.localStorage.getItem(authTokenKey)
+      if (!token) {
+        throw new Error('请先登录后再保存拾光')
+      }
+
+      const result = await backendApi.createMemory(token, {
+        ...memoryForm,
+        photos: [],
+      })
+      setMemories((current) => [mapBackendMemory(result.memory), ...current])
       setMemoryForm({ title: '', date: today, location: '', mood: 'sweet', note: '' })
     }, '回忆已经存进拾光册')
   }
@@ -590,7 +622,20 @@ export default function App() {
       }, '已取消这次完成记录')
       return
     }
-    if (confirmDelete.kind === 'memory') setMemories((current) => current.filter((item) => item.id !== confirmDelete.id))
+    if (confirmDelete.kind === 'memory') {
+      runSaving(async () => {
+        const token = window.localStorage.getItem(authTokenKey)
+        if (!token) {
+          throw new Error('请先登录后再删除拾光')
+        }
+
+        await backendApi.deleteMemory(token, confirmDelete.id)
+        setMemories((current) => current.filter((item) => item.id !== confirmDelete.id))
+        setConfirmDelete(null)
+        setSelectedMemory(null)
+      }, '拾光已经删除')
+      return
+    }
     if (confirmDelete.kind === 'wish') setWishes((current) => current.filter((item) => item.id !== confirmDelete.id))
     if (confirmDelete.kind === 'anniversary') setAnniversaries((current) => current.filter((item) => item.id !== confirmDelete.id))
     setConfirmDelete(null)

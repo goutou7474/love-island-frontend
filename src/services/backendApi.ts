@@ -83,6 +83,31 @@ export type UpsertCheckinCompletionPayload = Pick<
   note?: string | null
 }
 
+export type BackendMemoryMood = 'sweet' | 'travel' | 'daily' | 'first' | 'moving'
+
+export interface BackendMemory {
+  id: string
+  coupleId: string
+  title: string
+  date: string
+  location: string
+  mood: BackendMemoryMood
+  note: string
+  photos: string[]
+  createdByUserId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MemoryListResponse {
+  memories: BackendMemory[]
+}
+
+export type CreateMemoryPayload = Pick<
+  BackendMemory,
+  'title' | 'date' | 'location' | 'mood' | 'note' | 'photos'
+>
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -159,6 +184,30 @@ export const backendApi = {
   },
   deleteCheckinCompletion(token: string, itemId: string) {
     return requestJson<null>(`/checkins/completions/${itemId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  listMemories(token: string) {
+    return requestJson<MemoryListResponse>('/memories', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  createMemory(token: string, payload: CreateMemoryPayload) {
+    return requestJson<{ memory: BackendMemory }>('/memories', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  deleteMemory(token: string, memoryId: string) {
+    return requestJson<null>(`/memories/${memoryId}`, {
       method: 'DELETE',
       headers: {
         authorization: `Bearer ${token}`,
