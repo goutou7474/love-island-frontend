@@ -146,11 +146,11 @@ DELETE /api/secrets/:secretId
 ### Uploads
 
 ```http
-POST /api/uploads/presign
-POST /api/uploads/complete
+POST /api/media
+GET  /api/media/:assetId/file?token=
 ```
 
-第一阶段也可以后端直传，后续再切预签名上传。
+MVP 已采用后端直传。后续迁移到 OSS/COS/R2 时，可以保留 `POST /media` 作为产品接口，内部再替换为预签名上传或对象存储直传。
 
 ## 错误与状态
 
@@ -163,9 +163,11 @@ POST /api/uploads/complete
 
 ## 接入顺序
 
-1. 保留 mock，先写 `serverLoveAppApi` 的接口形状。
-2. 后端完成 auth + space + snapshot。
-3. 前端切首页和设置为真实接口。
-4. 接打卡、纪念日、心愿。
-5. 接拾光、图片上传、悄悄话。
-6. 接提醒、统计、年度报告。
+1. [x] 保留 mock，先写 `serverLoveAppApi` 的接口形状。
+2. [x] 后端完成 auth + space + snapshot。
+3. [x] 前端切首页和设置为真实接口。
+4. [x] 接打卡、纪念日、心愿。
+5. [x] 接拾光、图片上传、悄悄话。
+6. [ ] 接真实提醒、统计、年度报告。
+
+当前 MVP 已经覆盖 1-5。第 6 项拆为 post-MVP 增强，不阻塞两个人正式使用。
