@@ -273,6 +273,14 @@ export const backendApi = {
       body: JSON.stringify(payload),
     })
   },
+  deleteAnniversary(token: string, anniversaryId: string) {
+    return requestJson<null>(`/anniversaries/${anniversaryId}`, {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
   listCheckinCompletions(token: string) {
     return requestJson<CheckinCompletionListResponse>('/checkins/completions', {
       headers: {

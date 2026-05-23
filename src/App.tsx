@@ -794,9 +794,18 @@ export default function App() {
       }, '心愿已经删除')
       return
     }
-    if (confirmDelete.kind === 'anniversary') setAnniversaries((current) => current.filter((item) => item.id !== confirmDelete.id))
-    setConfirmDelete(null)
-    showToast('success', '已经删除')
+    if (confirmDelete.kind === 'anniversary') {
+      runSaving(async () => {
+        const token = window.localStorage.getItem(authTokenKey)
+        if (!token) {
+          throw new Error('请先登录后再删除纪念日')
+        }
+
+        await backendApi.deleteAnniversary(token, confirmDelete.id)
+        setAnniversaries((current) => current.filter((item) => item.id !== confirmDelete.id))
+        setConfirmDelete(null)
+      }, '纪念日已经删除')
+    }
   }
 
   const renderMainView = () => {
