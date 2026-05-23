@@ -36,7 +36,7 @@ import {
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
-import { backendApi, type BackendAnniversary, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
+import { backendApi, type BackendAnniversary, type BackendAppSettings, type BackendCheckinCompletion, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
 import type {
   Anniversary,
@@ -169,6 +169,16 @@ function mapBackendSecret(item: BackendSecretMessage, currentUserId: string): Se
     openAt: item.openAt ?? undefined,
     isOpened: Boolean(item.openedAt),
     canOpen: item.canOpen,
+  }
+}
+
+function mapBackendSettings(item: BackendAppSettings): AppSettings {
+  return {
+    anniversaryReminder: item.anniversaryReminder,
+    dailyMessagePush: item.dailyMessagePush,
+    partnerActivityNotify: item.partnerActivityNotify,
+    appLock: item.appLock,
+    softTheme: item.softTheme,
   }
 }
 
@@ -335,12 +345,13 @@ export default function App() {
 
       try {
         const session = await backendApi.me(token)
-        const [anniversaryResult, checkinResult, memoryResult, wishResult, secretResult] = await Promise.all([
+        const [anniversaryResult, checkinResult, memoryResult, wishResult, secretResult, settingsResult] = await Promise.all([
           backendApi.listAnniversaries(token),
           backendApi.listCheckinCompletions(token),
           backendApi.listMemories(token),
           backendApi.listWishes(token),
           backendApi.listSecrets(token),
+          backendApi.getSettings(token),
         ])
 
         if (cancelled) return
@@ -357,6 +368,7 @@ export default function App() {
         if (secretResult.secrets.length > 0) {
           setSecrets(secretResult.secrets.map((secret) => mapBackendSecret(secret, session.user.id)))
         }
+        setSettings(mapBackendSettings(settingsResult.settings))
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${session.user.displayName}`)
@@ -441,6 +453,11 @@ export default function App() {
     }
   }
 
+  const loadBackendSettings = async (token: string) => {
+    const result = await backendApi.getSettings(token)
+    setSettings(mapBackendSettings(result.settings))
+  }
+
   const openMainTab = (tab: MainTab) => {
     setActiveTab(tab)
     setView(tab)
@@ -472,6 +489,7 @@ export default function App() {
         loadBackendMemories(login.token),
         loadBackendWishes(login.token),
         loadBackendSecrets(login.token, session.user.id),
+        loadBackendSettings(login.token),
       ])
       setView('home')
       setActiveTab('home')
@@ -700,8 +718,25 @@ export default function App() {
   }
 
   const toggleSetting = (key: keyof AppSettings, value: boolean) => {
+    const previousSettings = settings
     setSettings((current) => current ? { ...current, [key]: value } : current)
-    mockLoveAppApi.updateSettings({ [key]: value }).then(() => showToast('success', '设置已保存'))
+
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      showToast('error', '请先登录后再保存设置')
+      setSettings(previousSettings)
+      return
+    }
+
+    backendApi.updateSettings(token, { [key]: value })
+      .then((result) => {
+        setSettings(mapBackendSettings(result.settings))
+        showToast('success', '设置已保存')
+      })
+      .catch((error) => {
+        setSettings(previousSettings)
+        showToast('error', error instanceof Error ? error.message : '设置保存失败，请稍后再试')
+      })
   }
 
   const deleteSelected = () => {

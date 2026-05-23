@@ -157,6 +157,27 @@ export type SendSecretPayload = Pick<BackendSecretMessage, 'title' | 'content' |
   openAt?: string | null
 }
 
+export interface BackendAppSettings {
+  userId: string
+  coupleId: string
+  anniversaryReminder: boolean
+  dailyMessagePush: boolean
+  partnerActivityNotify: boolean
+  appLock: boolean
+  softTheme: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SettingsResponse {
+  settings: BackendAppSettings
+}
+
+export type UpdateSettingsPayload = Partial<Pick<
+  BackendAppSettings,
+  'anniversaryReminder' | 'dailyMessagePush' | 'partnerActivityNotify' | 'appLock' | 'softTheme'
+>>
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:3000'
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -326,6 +347,22 @@ export const backendApi = {
       headers: {
         authorization: `Bearer ${token}`,
       },
+    })
+  },
+  getSettings(token: string) {
+    return requestJson<SettingsResponse>('/settings', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  updateSettings(token: string, payload: UpdateSettingsPayload) {
+    return requestJson<SettingsResponse>('/settings', {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     })
   },
 }
