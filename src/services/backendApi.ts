@@ -210,6 +210,32 @@ export interface SettingsResponse {
   settings: BackendAppSettings
 }
 
+export interface PushPublicKeyResponse {
+  enabled: boolean
+  publicKey: string | null
+}
+
+export interface BackendPushSubscription {
+  id: string
+  endpoint: string
+  userAgent: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PushSubscriptionListResponse {
+  subscriptions: BackendPushSubscription[]
+}
+
+export interface UpsertPushSubscriptionPayload {
+  endpoint: string
+  keys: {
+    p256dh: string
+    auth: string
+  }
+  userAgent?: string
+}
+
 export interface BackendAppStats {
   daysTogether: number
   checklistDone: number
@@ -571,6 +597,38 @@ export const backendApi = {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+    })
+  },
+  getPushPublicKey(token: string) {
+    return requestJson<PushPublicKeyResponse>('/push/vapid-public-key', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  listPushSubscriptions(token: string) {
+    return requestJson<PushSubscriptionListResponse>('/push/subscriptions', {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+  },
+  upsertPushSubscription(token: string, payload: UpsertPushSubscriptionPayload) {
+    return requestJson<{ subscription: BackendPushSubscription }>('/push/subscriptions', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+  deletePushSubscription(token: string, endpoint: string) {
+    return requestJson<null>('/push/subscriptions', {
+      method: 'DELETE',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ endpoint }),
     })
   },
   updateProfile(token: string, payload: UpdateProfilePayload) {

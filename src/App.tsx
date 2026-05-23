@@ -30,6 +30,7 @@ import {
   RotateCcw,
   Settings,
   ShieldAlert,
+  Smartphone,
   Sparkles,
   Star,
   Trash2,
@@ -38,6 +39,7 @@ import {
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
 import { backendApi, resolveBackendAssetUrl, type BackendAnnualReport, type BackendAnnualReportHighlightKind, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendCouple, type BackendCustomChecklistItem, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
 import { mockLoveAppApi, type LoveAppSnapshot } from '@/services/loveApi'
+import { disableDevicePush, enableDevicePush } from '@/services/pushNotifications'
 import { fetchWeatherForCities } from '@/services/weatherApi'
 import type {
   Anniversary,
@@ -75,6 +77,8 @@ type Dialog =
 type ConfirmDeleteTarget =
   | { kind: 'memory' | 'wish' | 'anniversary' | 'checklistItem' | 'checkinCompletion'; id: string }
   | null
+
+type DevicePushStatus = 'idle' | 'working' | 'enabled' | 'disabled'
 
 const tabItems: Array<{ id: MainTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: '小屋', icon: Home },
@@ -464,6 +468,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [annualReport, setAnnualReport] = useState<BackendAnnualReport | null>(null)
   const [annualReportLoading, setAnnualReportLoading] = useState(false)
+  const [devicePushStatus, setDevicePushStatus] = useState<DevicePushStatus>('idle')
 
   const [checklistForm, setChecklistForm] = useState({ categoryId: 'first', title: '' })
   const [checkinForm, setCheckinForm] = useState({ date: today, location: '', note: '' })
@@ -570,6 +575,17 @@ export default function App() {
         if (cancelled) return
 
         applyBackendSnapshot(backendSnapshot, visibleChecklistCategories)
+        void backendApi.listPushSubscriptions(token)
+          .then((result) => {
+            if (!cancelled) {
+              setDevicePushStatus(result.subscriptions.length > 0 ? 'enabled' : 'disabled')
+            }
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setDevicePushStatus('idle')
+            }
+          })
         setView('home')
         setActiveTab('home')
         showToast('success', `欢迎回来，${backendSnapshot.user.displayName}`)
@@ -1025,6 +1041,44 @@ export default function App() {
       })
   }
 
+  const enablePushForDevice = () => {
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      showToast('error', '请先登录后再开启本机通知')
+      return
+    }
+
+    setDevicePushStatus('working')
+    enableDevicePush(token)
+      .then((result) => {
+        setDevicePushStatus(result.enabled ? 'enabled' : 'disabled')
+        showToast(result.enabled ? 'success' : 'info', result.message)
+      })
+      .catch((error) => {
+        setDevicePushStatus('disabled')
+        showToast('error', error instanceof Error ? error.message : '本机通知开启失败')
+      })
+  }
+
+  const disablePushForDevice = () => {
+    const token = window.localStorage.getItem(authTokenKey)
+    if (!token) {
+      showToast('error', '请先登录后再关闭本机通知')
+      return
+    }
+
+    setDevicePushStatus('working')
+    disableDevicePush(token)
+      .then((result) => {
+        setDevicePushStatus('disabled')
+        showToast(result.enabled ? 'success' : 'info', result.message)
+      })
+      .catch((error) => {
+        setDevicePushStatus('idle')
+        showToast('error', error instanceof Error ? error.message : '本机通知关闭失败')
+      })
+  }
+
   const applyProfileResponse = (result: { user: BackendUser; couple: BackendCouple; members: BackendUser[] }) => {
     setCurrentUser(result.user)
     setSnapshot((current) => current ? {
@@ -1199,6 +1253,9 @@ export default function App() {
           onAvatar={openAvatarEditor}
           onShowState={setView}
           onLogout={handleLogout}
+          pushStatus={devicePushStatus}
+          onEnablePush={enablePushForDevice}
+          onDisablePush={disablePushForDevice}
         />
       )
     }
@@ -2324,6 +2381,9 @@ function SettingsPage({
   onAvatar,
   onShowState,
   onLogout,
+  pushStatus,
+  onEnablePush,
+  onDisablePush,
 }: {
   settings: AppSettings
   couple: LoveAppSnapshot['couple']
@@ -2334,7 +2394,17 @@ function SettingsPage({
   onAvatar: () => void
   onShowState: (view: AppView) => void
   onLogout: () => void
+  pushStatus: DevicePushStatus
+  onEnablePush: () => void
+  onDisablePush: () => void
 }) {
+  const pushStatusText = {
+    idle: '可为当前手机单独开启',
+    working: '正在处理本机通知...',
+    enabled: '这台设备已接收小岛提醒',
+    disabled: '这台设备暂未开启',
+  }[pushStatus]
+
   return (
     <div className="screen-scroll">
       <StatusBar />
@@ -2362,6 +2432,21 @@ function SettingsPage({
         <SettingRow icon={Mail} label="每日情话推送" checked={settings.dailyMessagePush} onChange={(value) => onToggle('dailyMessagePush', value)} />
         <SettingRow icon={Sparkles} label="对方活动通知" checked={settings.partnerActivityNotify} onChange={(value) => onToggle('partnerActivityNotify', value)} />
         <SettingRow icon={Lock} label="App 锁定" checked={settings.appLock} onChange={(value) => onToggle('appLock', value)} />
+        <div className="settings-push-card">
+          <div className="row">
+            <div className="settings-push-icon">
+              <Smartphone size={22} />
+            </div>
+            <div>
+              <p className="m-0 text-[14px] font-black text-[#725d42]">本机通知</p>
+              <p className="m-0 mt-1 text-[12px] font-bold text-[#9f927d]">{pushStatusText}</p>
+            </div>
+          </div>
+          <div className="settings-push-actions">
+            <Button type="primary" disabled={pushStatus === 'working'} onClick={onEnablePush}>开启</Button>
+            <Button disabled={pushStatus === 'working'} onClick={onDisablePush}>关闭</Button>
+          </div>
+        </div>
       </div>
       <div className="section grid gap-2">
         <Button block icon={<WifiOff size={16} />} onClick={() => onShowState('offline')}>查看离线页</Button>

@@ -171,6 +171,17 @@ DELETE /secrets/:secretId
 
 后端根据 `openMode`、`openAt` 和纪念日规则判断是否可打开。前端不应只靠本地判断保密。
 
+### Web Push
+
+```http
+GET    /push/vapid-public-key
+GET    /push/subscriptions
+POST   /push/subscriptions
+DELETE /push/subscriptions
+```
+
+前端设置页的“本机通知”会先读取 VAPID 公钥。服务器未配置时只展示提示，不会打断应用使用；配置完成后，浏览器订阅会保存到当前用户和当前小岛名下。后续生日、纪念日、悄悄话提醒复用这批订阅，不需要前端再改一套权限流程。
+
 ### Uploads
 
 ```http
@@ -198,6 +209,6 @@ MVP 已采用后端直传。后续迁移到 OSS/COS/R2 时，可以保留 `POST 
 5. [x] 接拾光、图片上传、悄悄话。
 6. [x] 接真实统计聚合。
 7. [x] 接年度报告生成。
-8. [ ] 接真实提醒。
+8. [~] 接真实提醒：设备订阅和设置入口已完成，发送器与定时任务待接。
 
-当前 MVP 已经覆盖 1-7。第 8 项拆为 post-MVP 增强，不阻塞两个人正式使用。
+当前 MVP 已经覆盖 1-7。第 8 项已经完成订阅基础设施，剩余发送和调度拆为 post-MVP 增强，不阻塞两个人正式使用。
