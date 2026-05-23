@@ -1681,7 +1681,7 @@ function LoginPage({
   loading: boolean
   onLogin: (email: string, password: string) => Promise<void>
 }) {
-  const [email, setEmail] = useState('owner@example.com')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
@@ -1696,12 +1696,6 @@ function LoginPage({
     }
   }
 
-  const fillAccount = (nextEmail: string) => {
-    setEmail(nextEmail)
-    setPassword('')
-    setError('')
-  }
-
   return (
     <div className="screen-scroll">
       <StatusBar />
@@ -1714,7 +1708,7 @@ function LoginPage({
         </div>
         <p className="mt-5 text-[12px] font-black uppercase tracking-[0.16em] text-[#9f927d]">Private Island</p>
         <h1 className="mt-2 text-[31px] font-black leading-tight text-[#725d42]">回到你们的小岛</h1>
-        <p className="mx-auto mt-3 max-w-[286px] text-[14px] leading-7 text-[#9f927d]">这里只给两个人用。输入预置账号后，天气、纪念日和小愿望才会亮起来。</p>
+        <p className="mx-auto mt-3 max-w-[286px] text-[14px] leading-7 text-[#9f927d]">这里只给两个人用。输入你的专属账号后，天气、纪念日和小愿望才会亮起来。</p>
       </div>
 
       <form className="section mt-5 grid gap-3" onSubmit={submitLogin}>
@@ -1728,7 +1722,7 @@ function LoginPage({
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="owner@example.com"
+                placeholder="输入专属邮箱"
               />
             </div>
           </Field>
@@ -1750,19 +1744,6 @@ function LoginPage({
 
         <Button type="primary" size="large" block htmlType="submit" loading={loading}>登录小岛</Button>
       </form>
-
-      <div className="section mt-3">
-        <div className="login-account-switch">
-          <button type="button" onClick={() => fillAccount('owner@example.com')}>
-            <span>言言账号</span>
-            <small>owner@example.com</small>
-          </button>
-          <button type="button" onClick={() => fillAccount('partner@example.com')}>
-            <span>羊羊账号</span>
-            <small>partner@example.com</small>
-          </button>
-        </div>
-      </div>
 
       <div className="section">
         <Card type="dashed">
@@ -2259,7 +2240,19 @@ function WishlistPage({ wishes, onAdd, onComplete, onDelete }: { wishes: Wish[];
             </div>
           </div>
         ))}
-        {filteredActive.length === 0 ? <IslandStateBlock title="这一类还没有果子" message="换个分类看看，或者添加一个新的小心愿。" /> : null}
+        {filteredActive.length === 0 ? (
+          <div className="wish-empty-card">
+            <div className="wish-empty-orchard" aria-hidden="true">
+              <span className="wish-empty-sprout" />
+              <Icon name="icon-variant" size={30} bounce />
+            </div>
+            <div>
+              <span className="leaf-chip is-active">{activeFilter === 'all' ? '空树枝' : wishCategoryLabels[activeFilter]}</span>
+              <h3>这一类还没有果子</h3>
+              <p>换个分类看看，或者添加一个新的小心愿。</p>
+            </div>
+          </div>
+        ) : null}
       </div>
       <div className="section">
         <div className="wish-done-card">
