@@ -1471,9 +1471,9 @@ export default function App() {
       <Modal open={dialog === 'annualReport'} title="年度爱情报告" width={mobileModalWidth} onClose={() => setDialog(null)} typewriter={false} footer={null}>
         <div className="form-stack">
           <div className="soft-card p-4">
-            <p className="m-0 text-[13px] leading-7 text-[#725d42]">今年你们完成了 {liveStats.checklistDone} 个打卡，留下 {liveStats.memoriesCount} 条回忆，实现 {liveStats.wishesDone} 个心愿。正式版会由后端聚合生成可分享报告。</p>
+            <p className="m-0 text-[13px] leading-7 text-[#725d42]">今年你们完成了 {liveStats.checklistDone} 个打卡，留下 {liveStats.memoriesCount} 条回忆，实现 {liveStats.wishesDone} 个心愿。小岛已经把这些亮闪闪的时刻收进报告里啦。</p>
           </div>
-          <Button type="primary" block onClick={() => showToast('info', '报告页面会在后续版本展开')}>知道啦</Button>
+          <Button type="primary" block onClick={() => setDialog(null)}>收好这份报告</Button>
         </div>
       </Modal>
 
@@ -2166,7 +2166,7 @@ function StatsPage({ stats, onBack, onReport }: { stats: LoveAppSnapshot['stats'
   return (
     <div className="screen-scroll">
       <StatusBar />
-      <Header kicker="REPORT" title="爱情数据报告" subtitle="给真实后端预留聚合统计入口。" back={onBack} action={onReport} actionIcon={BarChart3} />
+      <Header kicker="REPORT" title="爱情数据报告" subtitle="把打卡、心愿和回忆汇成一盏小灯。" back={onBack} action={onReport} actionIcon={BarChart3} />
       <div className="section">
         <div className="report-hero">
           <div>
@@ -2288,7 +2288,7 @@ function InvitePage({ inviteCode, onBack }: { inviteCode: string; onBack: () => 
   return (
     <div className="screen-scroll">
       <StatusBar />
-      <Header kicker="INVITE" title="邀请 TA 登岛" subtitle="正式版会显示二维码、过期时间和分享入口。" back={onBack} />
+      <Header kicker="INVITE" title="邀请 TA 登岛" subtitle="把这串小岛暗号发给 TA，就能一起回家。" back={onBack} />
       <div className="section">
         <div className="invite-card">
           <Icon name="icon-helicopter" size={58} bounce />
