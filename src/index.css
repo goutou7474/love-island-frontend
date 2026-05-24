@@ -298,6 +298,10 @@ input[type='date'].plain-input::-webkit-date-and-time-value {
   text-align: center;
 }
 
+input[type='date'].plain-input::-webkit-calendar-picker-indicator {
+  margin-left: auto;
+}
+
 .plain-textarea {
   min-height: 68px;
   resize: vertical;
@@ -2299,6 +2303,13 @@ input[type='date'].plain-input::-webkit-date-and-time-value {
   border-radius: 18px;
 }
 
+[class^='animal-modal-'] input[type='date'].plain-input {
+  min-height: 52px;
+  height: 52px;
+  line-height: 52px;
+  padding: 0 14px;
+}
+
 [class^='animal-modal-'] .plain-textarea {
   min-height: 56px;
 }
@@ -2333,9 +2344,10 @@ input[type='date'].plain-input::-webkit-date-and-time-value {
   padding: 6px 4px 14px;
 }
 
-.photo-viewer-toolbar div {
+.photo-viewer-toolbar > div:first-child {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .photo-viewer-toolbar strong {
@@ -2347,6 +2359,12 @@ input[type='date'].plain-input::-webkit-date-and-time-value {
   color: rgba(255, 248, 223, 0.72);
   font-size: 12px;
   font-weight: 800;
+}
+
+.photo-viewer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
 }
 
 .photo-viewer-toolbar button,
@@ -2361,19 +2379,43 @@ input[type='date'].plain-input::-webkit-date-and-time-value {
   color: #fff8df;
 }
 
+.photo-viewer-toolbar button:disabled {
+  opacity: 0.35;
+}
+
 .photo-viewer-stage {
   position: relative;
   display: grid;
   min-height: 0;
   place-items: center;
+  overflow: hidden;
 }
 
-.photo-viewer-stage img {
-  max-width: 100%;
-  max-height: 100%;
+.photo-viewer-image-frame {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  touch-action: manipulation;
+}
+
+.photo-viewer-image-frame.is-zoomed {
+  cursor: zoom-out;
+}
+
+.photo-viewer-image-frame img {
+  max-width: calc(100vw - 28px);
+  max-height: calc(100dvh - 112px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   border-radius: 22px;
   object-fit: contain;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  transform-origin: center center;
+  transition: transform 180ms ease;
 }
 
 .photo-viewer-nav {

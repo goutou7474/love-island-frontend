@@ -37,6 +37,8 @@ import {
   Trash2,
   X,
   WifiOff,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
 import { backendApi, resolveBackendAssetUrl, type BackendAnnualReport, type BackendAnnualReportHighlightKind, type BackendAnniversary, type BackendAppSettings, type BackendAppSnapshot, type BackendCheckinCompletion, type BackendCouple, type BackendCustomChecklistItem, type BackendMemory, type BackendSecretMessage, type BackendUser, type BackendWish } from '@/services/backendApi'
@@ -86,6 +88,7 @@ type PhotoViewerState = {
   photos: string[]
   index: number
   title: string
+  zoom: number
 } | null
 
 const tabItems: Array<{ id: MainTab; label: string; icon: typeof Home }> = [
@@ -532,7 +535,24 @@ export default function App() {
   const openPhotoViewer = (photos: string[], index: number, title: string) => {
     const viewablePhotos = photos.filter(isPhotoUrl)
     if (viewablePhotos.length === 0) return
-    setPhotoViewer({ photos: viewablePhotos, index: Math.min(index, viewablePhotos.length - 1), title })
+    setPhotoViewer({ photos: viewablePhotos, index: Math.min(index, viewablePhotos.length - 1), title, zoom: 1 })
+  }
+  const changePhotoViewerImage = (delta: number) => {
+    setPhotoViewer((current) => current ? {
+      ...current,
+      index: (current.index + delta + current.photos.length) % current.photos.length,
+      zoom: 1,
+    } : current)
+  }
+  const changePhotoViewerZoom = (delta: number) => {
+    setPhotoViewer((current) => {
+      if (!current) return current
+      const nextZoom = Math.min(3, Math.max(1, Number((current.zoom + delta).toFixed(1))))
+      return { ...current, zoom: nextZoom }
+    })
+  }
+  const togglePhotoViewerZoom = () => {
+    setPhotoViewer((current) => current ? { ...current, zoom: current.zoom > 1 ? 1 : 2 } : current)
   }
   const selectPhotoSet = async (
     files: FileList | null,
@@ -1744,11 +1764,19 @@ export default function App() {
           <div className="photo-viewer-toolbar">
             <div>
               <strong>{photoViewer.title}</strong>
-              <span>{photoViewer.index + 1}/{photoViewer.photos.length}</span>
+              <span>{photoViewer.index + 1}/{photoViewer.photos.length} · {Math.round(photoViewer.zoom * 100)}%</span>
             </div>
-            <button type="button" aria-label="关闭照片预览" onClick={() => setPhotoViewer(null)}>
-              <X size={22} />
-            </button>
+            <div className="photo-viewer-actions">
+              <button type="button" aria-label="缩小照片" disabled={photoViewer.zoom <= 1} onClick={() => changePhotoViewerZoom(-0.5)}>
+                <ZoomOut size={20} />
+              </button>
+              <button type="button" aria-label="放大照片" disabled={photoViewer.zoom >= 3} onClick={() => changePhotoViewerZoom(0.5)}>
+                <ZoomIn size={20} />
+              </button>
+              <button type="button" aria-label="关闭照片预览" onClick={() => setPhotoViewer(null)}>
+                <X size={22} />
+              </button>
+            </div>
           </div>
           <div className="photo-viewer-stage">
             <button
@@ -1756,17 +1784,24 @@ export default function App() {
               className="photo-viewer-nav is-left"
               aria-label="上一张照片"
               disabled={photoViewer.photos.length <= 1}
-              onClick={() => setPhotoViewer((current) => current ? { ...current, index: (current.index - 1 + current.photos.length) % current.photos.length } : current)}
+              onClick={() => changePhotoViewerImage(-1)}
             >
               <ChevronLeft size={24} />
             </button>
-            <img src={photoViewer.photos[photoViewer.index]} alt={photoViewer.title} />
+            <button
+              type="button"
+              className={`photo-viewer-image-frame${photoViewer.zoom > 1 ? ' is-zoomed' : ''}`}
+              aria-label="切换照片缩放"
+              onClick={togglePhotoViewerZoom}
+            >
+              <img src={photoViewer.photos[photoViewer.index]} alt={photoViewer.title} style={{ transform: `scale(${photoViewer.zoom})` }} />
+            </button>
             <button
               type="button"
               className="photo-viewer-nav is-right"
               aria-label="下一张照片"
               disabled={photoViewer.photos.length <= 1}
-              onClick={() => setPhotoViewer((current) => current ? { ...current, index: (current.index + 1) % current.photos.length } : current)}
+              onClick={() => changePhotoViewerImage(1)}
             >
               <ChevronRight size={24} />
             </button>
