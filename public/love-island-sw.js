@@ -16,8 +16,8 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
-    icon: '/vite.svg',
-    badge: '/vite.svg',
+    icon: '/island-icon.svg',
+    badge: '/island-icon.svg',
     data: {
       url: payload.url || '/',
     },

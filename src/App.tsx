@@ -16,6 +16,7 @@ import {
   CalendarDays,
   Camera,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Gift,
   Heart,
@@ -34,6 +35,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  X,
   WifiOff,
 } from 'lucide-react'
 import { ConfirmDialog, IslandStateBlock, LoadingScreen, ToastBubble } from '@/components/feedback/IslandFeedback'
@@ -79,6 +81,12 @@ type ConfirmDeleteTarget =
   | null
 
 type DevicePushStatus = 'idle' | 'working' | 'enabled' | 'disabled'
+
+type PhotoViewerState = {
+  photos: string[]
+  index: number
+  title: string
+} | null
 
 const tabItems: Array<{ id: MainTab; label: string; icon: typeof Home }> = [
   { id: 'home', label: '小屋', icon: Home },
@@ -480,6 +488,7 @@ export default function App() {
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
   const [selectedWish, setSelectedWish] = useState<Wish | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteTarget>(null)
+  const [photoViewer, setPhotoViewer] = useState<PhotoViewerState>(null)
 
   const [checklistCategories, setChecklistCategories] = useState<ChecklistCategory[]>([])
   const [memories, setMemories] = useState<Memory[]>([])
@@ -520,6 +529,11 @@ export default function App() {
   const [joinCode, setJoinCode] = useState('YY-0521')
 
   const showToast = (kind: ToastState['kind'], message: string) => setToast({ kind, message })
+  const openPhotoViewer = (photos: string[], index: number, title: string) => {
+    const viewablePhotos = photos.filter(isPhotoUrl)
+    if (viewablePhotos.length === 0) return
+    setPhotoViewer({ photos: viewablePhotos, index: Math.min(index, viewablePhotos.length - 1), title })
+  }
   const selectPhotoSet = async (
     files: FileList | null,
     setFiles: (files: File[]) => void,
@@ -1491,16 +1505,17 @@ export default function App() {
           <Field label="地点"><input className="plain-input" value={checkinForm.location} onChange={(event) => setCheckinForm({ ...checkinForm, location: event.target.value })} placeholder="在哪里完成的" /></Field>
           {selectedChecklistItem?.photos?.length ? (
             <div className="photo-preview-grid">
-              {selectedChecklistItem.photos.slice(0, 12).map((photo) => (
-                <div className="photo-preview-item" key={photo}>
+              {selectedChecklistItem.photos.slice(0, 12).map((photo, index) => (
+                <button className="photo-preview-item" key={photo} type="button" onClick={() => openPhotoViewer(selectedChecklistItem.photos ?? [], index, selectedChecklistItem.title)}>
                   <img src={photo} alt="已保存的打卡照片" />
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
           <PhotoPicker
             files={checkinPhotoFiles}
             previews={checkinPhotoPreviews}
+            onPreview={(index) => openPhotoViewer(checkinPhotoPreviews, index, '待上传打卡照片')}
             onChange={(files) => {
               void selectCheckinPhotos(files)
             }}
@@ -1528,16 +1543,17 @@ export default function App() {
           <Field label="地点"><input className="plain-input" value={memoryForm.location} onChange={(event) => setMemoryForm({ ...memoryForm, location: event.target.value })} /></Field>
           {memoryExistingPhotos.length > 0 ? (
             <div className="photo-preview-grid">
-              {memoryExistingPhotos.slice(0, 12).map((photo) => (
-                <div className="photo-preview-item" key={photo}>
+              {memoryExistingPhotos.slice(0, 12).map((photo, index) => (
+                <button className="photo-preview-item" key={photo} type="button" onClick={() => openPhotoViewer(memoryExistingPhotos, index, memoryForm.title || '拾光照片')}>
                   <img src={photo} alt="已保存的拾光照片" />
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
           <PhotoPicker
             files={memoryPhotoFiles}
             previews={memoryPhotoPreviews}
+            onPreview={(index) => openPhotoViewer(memoryPhotoPreviews, index, memoryForm.title || '待上传拾光照片')}
             onChange={(files) => {
               void selectMemoryPhotos(files)
             }}
@@ -1554,8 +1570,10 @@ export default function App() {
             <div className="rounded-[24px] bg-[#f7f3df] p-4 text-[14px] leading-7 text-[#725d42]">{selectedMemory.note}</div>
             {selectedMemory.photos.some(isPhotoUrl) ? (
               <div className="memory-detail-photo-grid">
-                {selectedMemory.photos.filter(isPhotoUrl).slice(0, 12).map((photo) => (
-                  <img src={photo} alt={selectedMemory.title} key={photo} />
+                {selectedMemory.photos.filter(isPhotoUrl).slice(0, 12).map((photo, index, photos) => (
+                  <button className="memory-detail-photo-button" key={photo} type="button" onClick={() => openPhotoViewer(photos, index, selectedMemory.title)}>
+                    <img src={photo} alt={selectedMemory.title} />
+                  </button>
                 ))}
               </div>
             ) : (
@@ -1614,6 +1632,7 @@ export default function App() {
           <PhotoPicker
             files={wishPhotoFiles}
             previews={wishPhotoPreviews}
+            onPreview={(index) => openPhotoViewer(wishPhotoPreviews, index, '待上传心愿照片')}
             onChange={(files) => {
               void selectWishPhotos(files)
             }}
@@ -1719,6 +1738,41 @@ export default function App() {
           <Button type="primary" block loading={annualReportLoading} onClick={() => setDialog(null)}>收好这份报告</Button>
         </div>
       </Modal>
+
+      {photoViewer ? (
+        <div className="photo-viewer-overlay" role="dialog" aria-modal="true" aria-label={photoViewer.title}>
+          <div className="photo-viewer-toolbar">
+            <div>
+              <strong>{photoViewer.title}</strong>
+              <span>{photoViewer.index + 1}/{photoViewer.photos.length}</span>
+            </div>
+            <button type="button" aria-label="关闭照片预览" onClick={() => setPhotoViewer(null)}>
+              <X size={22} />
+            </button>
+          </div>
+          <div className="photo-viewer-stage">
+            <button
+              type="button"
+              className="photo-viewer-nav is-left"
+              aria-label="上一张照片"
+              disabled={photoViewer.photos.length <= 1}
+              onClick={() => setPhotoViewer((current) => current ? { ...current, index: (current.index - 1 + current.photos.length) % current.photos.length } : current)}
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <img src={photoViewer.photos[photoViewer.index]} alt={photoViewer.title} />
+            <button
+              type="button"
+              className="photo-viewer-nav is-right"
+              aria-label="下一张照片"
+              disabled={photoViewer.photos.length <= 1}
+              onClick={() => setPhotoViewer((current) => current ? { ...current, index: (current.index + 1) % current.photos.length } : current)}
+            >
+              <ChevronRight size={24} />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <ConfirmDialog
         open={Boolean(confirmDelete)}
@@ -2646,10 +2700,12 @@ function PhotoPicker({
   files,
   previews,
   onChange,
+  onPreview,
 }: {
   files: File[]
   previews: string[]
   onChange: (files: FileList | null) => void
+  onPreview?: (index: number) => void
 }) {
   return (
     <div className="photo-picker">
@@ -2667,9 +2723,9 @@ function PhotoPicker({
       {previews.length > 0 ? (
         <div className="photo-preview-grid">
           {previews.map((preview, index) => (
-            <div className="photo-preview-item" key={`${preview}-${index}`}>
+            <button className="photo-preview-item" key={`${preview}-${index}`} type="button" onClick={() => onPreview?.(index)}>
               <img src={preview} alt={`待上传照片 ${index + 1}`} />
-            </div>
+            </button>
           ))}
         </div>
       ) : null}

@@ -10,7 +10,7 @@ export async function enableDevicePush(token: string): Promise<DevicePushResult>
   if (!isSecure) {
     return {
       enabled: false,
-      message: 'iPhone 通知需要 HTTPS。绑定域名并开启 HTTPS 后，再把小岛添加到主屏幕即可开启。',
+      message: '本机通知需要 HTTPS。现在请先用 IP 入口验收，等域名解除拦截/备案完成后再开启。',
     }
   }
 
@@ -18,6 +18,13 @@ export async function enableDevicePush(token: string): Promise<DevicePushResult>
     return {
       enabled: false,
       message: 'iPhone 需要 iOS 16.4+，并从主屏幕打开小岛 App 后才能开启通知',
+    }
+  }
+
+  if (isIosSafari() && !isStandaloneWebApp()) {
+    return {
+      enabled: false,
+      message: 'iPhone 通知需要先把 HTTPS 小岛添加到主屏幕，再从桌面图标打开后开启。',
     }
   }
 
@@ -96,6 +103,15 @@ export async function disableDevicePush(token: string): Promise<DevicePushResult
     enabled: false,
     message: '这台设备的小岛通知已关闭',
   }
+}
+
+function isIosSafari() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+}
+
+function isStandaloneWebApp() {
+  const nav = window.navigator as Navigator & { standalone?: boolean }
+  return nav.standalone === true || window.matchMedia('(display-mode: standalone)').matches
 }
 
 function urlBase64ToUint8Array(value: string) {
